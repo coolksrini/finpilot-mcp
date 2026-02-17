@@ -279,8 +279,7 @@ Examples:
 
   # Override gateway URL (e.g., local development)
   FINPILOT_API_KEY=your-key python -m finpilot_mcp.server \\
-    --api-gateway-url http://localhost:8000 \\
-    --environment development
+    --api-gateway-url http://localhost:8000
 
 Security:
   - API keys and tokens MUST be set via environment variables
@@ -301,11 +300,6 @@ Security:
     parser.add_argument(
         "--api-gateway-url",
         help="Override API Gateway URL (default: https://api.finpilot.ai)",
-    )
-    parser.add_argument(
-        "--environment",
-        choices=["production", "staging", "development"],
-        help="Environment (default: production)",
     )
 
     # HTTP mode settings
@@ -331,8 +325,6 @@ Security:
     # Apply non-sensitive CLI overrides to settings
     if args.api_gateway_url:
         settings.api_gateway_url = args.api_gateway_url
-    if args.environment:
-        settings.environment = args.environment
 
     # Validate authentication
     if not settings.has_auth:
@@ -348,7 +340,6 @@ Security:
         # STDIO mode - for Claude Desktop
         print(f"[FinPilot MCP] Starting in STDIO mode", file=sys.stderr)
         print(f"[FinPilot MCP] Gateway: {settings.effective_gateway_url}", file=sys.stderr)
-        print(f"[FinPilot MCP] Environment: {settings.environment}", file=sys.stderr)
 
         # Run MCP server in stdio mode
         mcp.run()
@@ -358,7 +349,6 @@ Security:
 
         print(f"[FinPilot MCP] Starting HTTP server on http://{args.host}:{args.port}")
         print(f"[FinPilot MCP] Gateway URL: {settings.effective_gateway_url}")
-        print(f"[FinPilot MCP] Environment: {settings.environment}")
         print(f"[FinPilot MCP] Docs: http://{args.host}:{args.port}/docs")
 
         uvicorn.run(
