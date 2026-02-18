@@ -1,4 +1,11 @@
-"""HTTP client for FinPilot API Gateway."""
+"""HTTP client for FinPilot API Gateway and A2A Orchestrator.
+
+ARCHITECTURE:
+- Local Development: Calls ADK Orchestrator directly via A2A protocol (http://localhost:3000)
+- Production: Calls API Gateway via REST API (https://api.finpilot.ai)
+
+The gateway is just a proxy with rate limiting. For local dev, we bypass it.
+"""
 
 from typing import Any, Optional
 
@@ -6,6 +13,7 @@ import httpx
 
 from finpilot_mcp.config import settings
 from finpilot_mcp.constants import ENDPOINTS
+from finpilot_mcp.a2a_client import SimpleA2AClient
 
 
 class FinPilotAPIError(Exception):
@@ -26,7 +34,7 @@ class FinPilotClient:
     
     def __init__(self):
         """Initialize client with settings."""
-        self.base_url = settings.effective_gateway_url
+        self.base_url = settings.effective_backend_url
         self.timeout = settings.request_timeout
         self.upload_timeout = settings.upload_timeout
     
@@ -114,14 +122,45 @@ class FinPilotClient:
         bureau: Optional[str] = None,
     ) -> dict[str, Any]:
         """Analyze credit report.
-        
+
+        LOCAL DEV: Calls orchestrator directly via A2A
+        PRODUCTION: Calls API Gateway via REST
+
         Args:
             pdf_base64: Base64 encoded PDF content
             bureau: Credit bureau name (optional)
-            
+
         Returns:
             Credit analysis result
         """
+        # For local dev, use orchestrator directly
+        if settings.is_local_dev and settings.use_direct_orchestrator:
+            from finpilot_mcp.orchestrator_client import orchestrator_client
+
+            # Save PDF to temp file for orchestrator
+            # (orchestrator expects file_uri, not base64)
+            import base64
+            import tempfile
+            from pathlib import Path
+
+            pdf_bytes = base64.b64decode(pdf_base64)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(pdf_bytes)
+                tmp_path = tmp.name
+
+            file_uri = f"file://{tmp_path}"
+
+            result = await orchestrator_client.analyze_credit_report(
+                file_uri=file_uri,
+                password=None,
+            )
+
+            # Clean up temp file
+            Path(tmp_path).unlink(missing_ok=True)
+
+            return result
+
+        # Production: use API Gateway
         return await self._request(
             method="POST",
             endpoint=ENDPOINTS["credit_analyze"],
@@ -151,14 +190,40 @@ class FinPilotClient:
         portfolio_data: Optional[dict] = None,
     ) -> dict[str, Any]:
         """Analyze investment portfolio.
-        
+
+        LOCAL DEV: Calls orchestrator directly via A2A
+        PRODUCTION: Calls API Gateway via REST
+
         Args:
             cas_pdf_base64: CAS PDF (base64) - NSDL/CDSL statement
             portfolio_data: Direct portfolio data (alternative to PDF)
-            
+
         Returns:
             Portfolio analysis
         """
+        # For local dev, use orchestrator directly
+        if settings.is_local_dev and settings.use_direct_orchestrator and cas_pdf_base64:
+            from finpilot_mcp.orchestrator_client import orchestrator_client
+            import base64
+            import tempfile
+            from pathlib import Path
+
+            pdf_bytes = base64.b64decode(cas_pdf_base64)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(pdf_bytes)
+                tmp_path = tmp.name
+
+            result = await orchestrator_client.analyze_portfolio(
+                file_path=tmp_path,
+                password=None,
+            )
+
+            # Clean up temp file
+            Path(tmp_path).unlink(missing_ok=True)
+
+            return result
+
+        # Production: use API Gateway
         return await self._request(
             method="POST",
             endpoint=ENDPOINTS["portfolio_analyze"],
