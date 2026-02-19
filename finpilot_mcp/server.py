@@ -35,15 +35,18 @@ mcp = FastMCP(
 
 @mcp.tool()
 async def analyze_credit_report(
-    pdf_base64: str,
+    file_path: str,
     bureau: str | None = None,
 ) -> dict[str, Any]:
     """Analyze credit report from CIBIL, Experian, or Equifax.
-    
+
     Args:
-        pdf_base64: Base64 encoded PDF content of credit report
-        bureau: Credit bureau name (cibil, experian, equifax) - auto-detected if not provided
-        
+        file_path: Path or URL to the credit report PDF.
+                   Local path: /Users/name/Downloads/cibil_report.pdf
+                   Cloud URL:  https://drive.google.com/... or https://1drv.ms/...
+                               (must be shared with "anyone with link can view")
+        bureau: Credit bureau name (cibil, experian, equifax) — auto-detected if not provided
+
     Returns:
         Comprehensive credit analysis including:
         - Credit score and factors
@@ -52,16 +55,10 @@ async def analyze_credit_report(
         - High-rate loan swap recommendations
     """
     try:
-        result = await client.analyze_credit_report(pdf_base64, bureau)
-        return {
-            "status": "success",
-            "data": result,
-        }
+        result = await client.analyze_credit_report(file_path=file_path, bureau=bureau)
+        return {"status": "success", "data": result}
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-        }
+        return {"status": "error", "error": str(e)}
 
 
 @mcp.tool()
@@ -97,15 +94,18 @@ async def get_credit_health(user_id: str | None = None) -> dict[str, Any]:
 
 @mcp.tool()
 async def analyze_portfolio(
-    cas_pdf_base64: str | None = None,
+    file_path: str | None = None,
     portfolio_data: dict | None = None,
 ) -> dict[str, Any]:
-    """Analyze investment portfolio from CAS statement or direct data.
-    
+    """Analyze investment portfolio from a CAS PDF or direct data.
+
     Args:
-        cas_pdf_base64: Base64 encoded CAS PDF (NSDL/CDSL consolidated statement)
-        portfolio_data: Direct portfolio data (alternative to PDF)
-        
+        file_path: Path or URL to the CAS PDF (NSDL/CDSL/CAMS consolidated statement).
+                   Local path: /Users/name/Downloads/cas_statement.pdf
+                   Cloud URL:  https://drive.google.com/... or https://1drv.ms/...
+                               (must be shared with "anyone with link can view")
+        portfolio_data: Direct portfolio data as a dict (alternative to PDF)
+
     Returns:
         Portfolio analysis including:
         - Holdings breakdown (mutual funds, stocks)
@@ -114,17 +114,13 @@ async def analyze_portfolio(
         - Rebalancing recommendations
         - Tax optimization opportunities
     """
+    if not file_path and not portfolio_data:
+        return {"status": "error", "error": "Provide file_path or portfolio_data"}
     try:
-        result = await client.analyze_portfolio(cas_pdf_base64, portfolio_data)
-        return {
-            "status": "success",
-            "data": result,
-        }
+        result = await client.analyze_portfolio(file_path=file_path, portfolio_data=portfolio_data)
+        return {"status": "success", "data": result}
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-        }
+        return {"status": "error", "error": str(e)}
 
 
 # ============================================================================
@@ -254,10 +250,11 @@ def credit_report_analysis(
 
 ## Your workflow
 
-1. **Ask for the PDF** — Request the user's {bureau_upper} credit report PDF as a base64-encoded file.
-   - If they're unsure how: "Download your free report from the {bureau_upper} website, then share it here."
+1. **Ask for the file path** — Ask: "What's the full path to your {bureau_upper} PDF on your computer?"
+   - Example: `/Users/name/Downloads/cibil_report.pdf`
+   - If they don't have it: "Download your free report from the {bureau_upper} website and tell me where it saved."
 
-2. **Call `analyze_credit_report`** with the PDF and `bureau="{bureau}"` to extract:
+2. **Call `analyze_credit_report`** with `file_path=<their path>` and `bureau="{bureau}"` to extract:
    - Credit score and the factors affecting it
    - All active loan accounts with true APR, outstanding balance, and EMI
    - Payment history and DPD (days past due) flags
@@ -300,13 +297,13 @@ def portfolio_health_check(
 
 ## Your workflow
 
-1. **Ask for the CAS PDF** — Request their Consolidated Account Statement:
-   - NSDL CAS: nsdlcas.nsdl.com
-   - CDSL CAS: mycas.cdsl.com
-   - CAMS CAS: camsonline.com
+1. **Ask for the file path or URL** — "What's the path or URL to your CAS PDF?"
+   - Local path: `/Users/name/Downloads/cas_statement.pdf`
+   - Google Drive / OneDrive: share link with "anyone with link can view"
+   - Download sources: NSDL (nsdlcas.nsdl.com), CDSL (mycas.cdsl.com), CAMS (camsonline.com)
    - The PDF may be password-protected (typically date of birth: DDMMYYYY)
 
-2. **Call `analyze_portfolio`** with `cas_pdf_base64` to extract:
+2. **Call `analyze_portfolio`** with `file_path=<their path or URL>` to extract:
    - All mutual fund holdings across AMCs and folios
    - Current NAV, units, and market value per scheme
    - Asset allocation (equity / debt / hybrid / liquid)

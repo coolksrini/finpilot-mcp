@@ -118,49 +118,40 @@ class FinPilotClient:
     
     async def analyze_credit_report(
         self,
-        pdf_base64: str,
+        file_path: str,
         bureau: Optional[str] = None,
     ) -> dict[str, Any]:
         """Analyze credit report.
 
-        LOCAL DEV: Calls orchestrator directly via A2A
-        PRODUCTION: Calls API Gateway via REST
+        LOCAL DEV: Passes local path as file:// URI or cloud URL directly to orchestrator
+        PRODUCTION: Reads file and sends base64 to API Gateway
 
         Args:
-            pdf_base64: Base64 encoded PDF content
+            file_path: Local path (/Users/name/file.pdf) or cloud URL (Google Drive, OneDrive)
             bureau: Credit bureau name (optional)
-
-        Returns:
-            Credit analysis result
         """
-        # For local dev, use orchestrator directly
         if settings.is_local_dev and settings.use_direct_orchestrator:
             from finpilot_mcp.orchestrator_client import orchestrator_client
 
-            # Save PDF to temp file for orchestrator
-            # (orchestrator expects file_uri, not base64)
-            import base64
-            import tempfile
-            from pathlib import Path
+            # Cloud URLs pass through as-is; local paths become file:// URIs
+            if file_path.startswith("http://") or file_path.startswith("https://"):
+                file_uri = file_path
+            else:
+                file_uri = f"file://{file_path}" if not file_path.startswith("file://") else file_path
 
-            pdf_bytes = base64.b64decode(pdf_base64)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp.write(pdf_bytes)
-                tmp_path = tmp.name
+            return await orchestrator_client.analyze_credit_report(file_uri=file_uri, bureau=bureau)
 
-            file_uri = f"file://{tmp_path}"
+        # Production: read file and encode to base64
+        import base64
+        if file_path.startswith("http://") or file_path.startswith("https://"):
+            async with httpx.AsyncClient() as http:
+                response = await http.get(file_path)
+                response.raise_for_status()
+                pdf_base64 = base64.b64encode(response.content).decode()
+        else:
+            with open(file_path, "rb") as f:
+                pdf_base64 = base64.b64encode(f.read()).decode()
 
-            result = await orchestrator_client.analyze_credit_report(
-                file_uri=file_uri,
-                password=None,
-            )
-
-            # Clean up temp file
-            Path(tmp_path).unlink(missing_ok=True)
-
-            return result
-
-        # Production: use API Gateway
         return await self._request(
             method="POST",
             endpoint=ENDPOINTS["credit_analyze"],
@@ -170,13 +161,22 @@ class FinPilotClient:
     
     async def get_credit_health(self, user_id: Optional[str] = None) -> dict[str, Any]:
         """Get credit health summary.
-        
+
+        LOCAL DEV: Calls orchestrator directly via A2A
+        PRODUCTION: Calls API Gateway via REST
+
         Args:
             user_id: User ID (optional, uses authenticated user if not provided)
-            
+
         Returns:
             Credit health data
         """
+        # For local dev, use orchestrator directly
+        if settings.is_local_dev and settings.use_direct_orchestrator:
+            from finpilot_mcp.orchestrator_client import orchestrator_client
+            return await orchestrator_client.get_credit_health(user_id=user_id)
+
+        # Production: use REST API
         params = {"user_id": user_id} if user_id else {}
         return await self._request(
             method="GET",
@@ -186,51 +186,59 @@ class FinPilotClient:
     
     async def analyze_portfolio(
         self,
-        cas_pdf_base64: Optional[str] = None,
+        file_path: Optional[str] = None,
         portfolio_data: Optional[dict] = None,
     ) -> dict[str, Any]:
         """Analyze investment portfolio.
 
-        LOCAL DEV: Calls orchestrator directly via A2A
-        PRODUCTION: Calls API Gateway via REST
+        LOCAL DEV: Passes local path directly or downloads cloud URL to a temp file
+        PRODUCTION: Reads file and sends base64 to API Gateway
 
         Args:
-            cas_pdf_base64: CAS PDF (base64) - NSDL/CDSL statement
-            portfolio_data: Direct portfolio data (alternative to PDF)
-
-        Returns:
-            Portfolio analysis
+            file_path: Local path (/Users/name/cas.pdf) or cloud URL (Google Drive, OneDrive)
+            portfolio_data: Direct portfolio data as a dict (alternative to PDF)
         """
-        # For local dev, use orchestrator directly
-        if settings.is_local_dev and settings.use_direct_orchestrator and cas_pdf_base64:
+        if settings.is_local_dev and settings.use_direct_orchestrator:
             from finpilot_mcp.orchestrator_client import orchestrator_client
-            import base64
-            import tempfile
-            from pathlib import Path
 
-            pdf_bytes = base64.b64decode(cas_pdf_base64)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp.write(pdf_bytes)
-                tmp_path = tmp.name
+            if file_path:
+                if file_path.startswith("http://") or file_path.startswith("https://"):
+                    # Download cloud URL to a temp file, then pass path to orchestrator
+                    import tempfile
+                    from pathlib import Path
+                    async with httpx.AsyncClient() as http:
+                        response = await http.get(file_path, follow_redirects=True)
+                        response.raise_for_status()
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                        tmp.write(response.content)
+                        tmp_path = tmp.name
+                    result = await orchestrator_client.analyze_portfolio(file_path=tmp_path)
+                    Path(tmp_path).unlink(missing_ok=True)
+                    return result
+                else:
+                    # Local path — pass straight through, no I/O in the MCP layer
+                    return await orchestrator_client.analyze_portfolio(file_path=file_path)
 
-            result = await orchestrator_client.analyze_portfolio(
-                file_path=tmp_path,
-                password=None,
-            )
+            if portfolio_data:
+                return await orchestrator_client.analyze_portfolio(file_path=None)
 
-            # Clean up temp file
-            Path(tmp_path).unlink(missing_ok=True)
+        # Production: read file and encode to base64
+        import base64
+        cas_pdf_base64 = None
+        if file_path:
+            if file_path.startswith("http://") or file_path.startswith("https://"):
+                async with httpx.AsyncClient() as http:
+                    response = await http.get(file_path, follow_redirects=True)
+                    response.raise_for_status()
+                    cas_pdf_base64 = base64.b64encode(response.content).decode()
+            else:
+                with open(file_path, "rb") as f:
+                    cas_pdf_base64 = base64.b64encode(f.read()).decode()
 
-            return result
-
-        # Production: use API Gateway
         return await self._request(
             method="POST",
             endpoint=ENDPOINTS["portfolio_analyze"],
-            json={
-                "cas_pdf_base64": cas_pdf_base64,
-                "portfolio_data": portfolio_data,
-            },
+            json={"cas_pdf_base64": cas_pdf_base64, "portfolio_data": portfolio_data},
             timeout=self.upload_timeout,
         )
     
@@ -240,14 +248,23 @@ class FinPilotClient:
         user_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Get loan optimization recommendations.
-        
+
+        LOCAL DEV: Calls orchestrator directly via A2A
+        PRODUCTION: Calls API Gateway via REST
+
         Args:
             loans: List of loan details
             user_id: User ID (uses authenticated user if not provided)
-            
+
         Returns:
             Optimization recommendations
         """
+        # For local dev, use orchestrator directly
+        if settings.is_local_dev and settings.use_direct_orchestrator:
+            from finpilot_mcp.orchestrator_client import orchestrator_client
+            return await orchestrator_client.optimize_loans(loans=loans, user_id=user_id)
+
+        # Production: use REST API
         return await self._request(
             method="POST",
             endpoint=ENDPOINTS["loan_optimize"],
@@ -261,15 +278,28 @@ class FinPilotClient:
         user_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Create comprehensive financial plan.
-        
+
+        LOCAL DEV: Calls orchestrator directly via A2A
+        PRODUCTION: Calls API Gateway via REST
+
         Args:
             goals: Financial goals
             current_situation: Current financial situation
             user_id: User ID
-            
+
         Returns:
             Financial plan
         """
+        # For local dev, use orchestrator directly
+        if settings.is_local_dev and settings.use_direct_orchestrator:
+            from finpilot_mcp.orchestrator_client import orchestrator_client
+            return await orchestrator_client.create_financial_plan(
+                goals=goals,
+                current_situation=current_situation,
+                user_id=user_id
+            )
+
+        # Production: use REST API
         return await self._request(
             method="POST",
             endpoint=ENDPOINTS["financial_plan"],
