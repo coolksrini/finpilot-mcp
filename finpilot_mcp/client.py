@@ -113,6 +113,41 @@ class FinPilotClient:
             )
     
     # ========================================================================
+    # File Helpers — run on the host, never inside Docker
+    # ========================================================================
+
+    @staticmethod
+    def _is_cloud_url(path: str) -> bool:
+        """Return True if path is a cloud URL (Google Drive, OneDrive, etc.)."""
+        return path.startswith("http://") or path.startswith("https://")
+
+    async def _read_file_bytes(self, file_path: str) -> bytes:
+        """Read a local file, returning raw bytes.
+
+        Only for local paths — cloud URLs are handled by the orchestrator
+        (which has registered OAuth clients for Google Drive / OneDrive).
+        """
+        with open(file_path, "rb") as f:
+            return f.read()
+
+    async def _extract_pdf_text(self, file_path: str) -> tuple[str, int]:
+        """Extract text from a local PDF on the host machine.
+
+        Returns (full_text, page_count). Runs pdfplumber locally so the
+        orchestrator (in Docker) receives text, not a file path or blob.
+        """
+        import pdfplumber
+        from io import BytesIO
+
+        pdf_bytes = await self._read_file_bytes(file_path)
+        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+            parts = []
+            for i, page in enumerate(pdf.pages, start=1):
+                text = page.extract_text() or ""
+                parts.append(f"=== PAGE {i} ===\n\n{text}")
+            return "\n\n".join(parts), len(pdf.pages)
+
+    # ========================================================================
     # API Methods
     # ========================================================================
     
@@ -123,39 +158,39 @@ class FinPilotClient:
     ) -> dict[str, Any]:
         """Analyze credit report.
 
-        LOCAL DEV: Passes local path as file:// URI or cloud URL directly to orchestrator
-        PRODUCTION: Reads file and sends base64 to API Gateway
+        input_type contract:
+        - Local file  → MCP extracts text on host, sends input_type="text" with extracted_text
+        - Cloud URL   → MCP passes URL as-is, sends input_type="url" (orchestrator handles OAuth)
 
         Args:
             file_path: Local path (/Users/name/file.pdf) or cloud URL (Google Drive, OneDrive)
             bureau: Credit bureau name (optional)
         """
+        if self._is_cloud_url(file_path):
+            # Cloud URL: orchestrator owns the OAuth/download pipeline
+            data: dict[str, Any] = {"input_type": "url", "url": file_path, "bureau": bureau}
+        else:
+            # Local file: extract text on the host — orchestrator (Docker) can't see host paths
+            extracted_text, page_count = await self._extract_pdf_text(file_path)
+            data = {
+                "input_type": "text",
+                "extracted_text": extracted_text,
+                "page_count": page_count,
+                "bureau": bureau,
+            }
+
         if settings.is_local_dev and settings.use_direct_orchestrator:
             from finpilot_mcp.orchestrator_client import orchestrator_client
+            return await orchestrator_client.invoke_workflow(
+                ui_action="EXTRACT_CREDIT_REPORT",
+                data=data,
+            )
 
-            # Cloud URLs pass through as-is; local paths become file:// URIs
-            if file_path.startswith("http://") or file_path.startswith("https://"):
-                file_uri = file_path
-            else:
-                file_uri = f"file://{file_path}" if not file_path.startswith("file://") else file_path
-
-            return await orchestrator_client.analyze_credit_report(file_uri=file_uri, bureau=bureau)
-
-        # Production: read file and encode to base64
-        import base64
-        if file_path.startswith("http://") or file_path.startswith("https://"):
-            async with httpx.AsyncClient() as http:
-                response = await http.get(file_path)
-                response.raise_for_status()
-                pdf_base64 = base64.b64encode(response.content).decode()
-        else:
-            with open(file_path, "rb") as f:
-                pdf_base64 = base64.b64encode(f.read()).decode()
-
+        # Production: send to API Gateway
         return await self._request(
             method="POST",
             endpoint=ENDPOINTS["credit_analyze"],
-            json={"pdf_base64": pdf_base64, "bureau": bureau},
+            json=data,
             timeout=self.upload_timeout,
         )
     
@@ -191,54 +226,41 @@ class FinPilotClient:
     ) -> dict[str, Any]:
         """Analyze investment portfolio.
 
-        LOCAL DEV: Passes local path directly or downloads cloud URL to a temp file
-        PRODUCTION: Reads file and sends base64 to API Gateway
+        input_type contract:
+        - Local PDF   → MCP reads bytes on host, sends input_type="base64" with cas_pdf_base64
+                        (casparser inside Docker needs actual binary, not extracted text)
+        - Cloud URL   → MCP passes URL as-is, sends input_type="url" (orchestrator handles OAuth)
+        - Direct data → sends input_type="data" with portfolio_data dict
 
         Args:
             file_path: Local path (/Users/name/cas.pdf) or cloud URL (Google Drive, OneDrive)
             portfolio_data: Direct portfolio data as a dict (alternative to PDF)
         """
+        import base64 as b64
+
+        if file_path and self._is_cloud_url(file_path):
+            # Cloud URL: orchestrator owns the OAuth/download pipeline
+            data: dict[str, Any] = {"input_type": "url", "url": file_path}
+        elif file_path:
+            # Local file: read bytes on host, pass base64 to orchestrator
+            # Orchestrator decodes to tempfile → casparser reads it
+            pdf_bytes = await self._read_file_bytes(file_path)
+            data = {"input_type": "base64", "cas_pdf_base64": b64.b64encode(pdf_bytes).decode()}
+        else:
+            # Direct portfolio data (no PDF)
+            data = {"input_type": "data", "portfolio_data": portfolio_data}
+
         if settings.is_local_dev and settings.use_direct_orchestrator:
             from finpilot_mcp.orchestrator_client import orchestrator_client
-
-            if file_path:
-                if file_path.startswith("http://") or file_path.startswith("https://"):
-                    # Download cloud URL to a temp file, then pass path to orchestrator
-                    import tempfile
-                    from pathlib import Path
-                    async with httpx.AsyncClient() as http:
-                        response = await http.get(file_path, follow_redirects=True)
-                        response.raise_for_status()
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                        tmp.write(response.content)
-                        tmp_path = tmp.name
-                    result = await orchestrator_client.analyze_portfolio(file_path=tmp_path)
-                    Path(tmp_path).unlink(missing_ok=True)
-                    return result
-                else:
-                    # Local path — pass straight through, no I/O in the MCP layer
-                    return await orchestrator_client.analyze_portfolio(file_path=file_path)
-
-            if portfolio_data:
-                return await orchestrator_client.analyze_portfolio(file_path=None)
-
-        # Production: read file and encode to base64
-        import base64
-        cas_pdf_base64 = None
-        if file_path:
-            if file_path.startswith("http://") or file_path.startswith("https://"):
-                async with httpx.AsyncClient() as http:
-                    response = await http.get(file_path, follow_redirects=True)
-                    response.raise_for_status()
-                    cas_pdf_base64 = base64.b64encode(response.content).decode()
-            else:
-                with open(file_path, "rb") as f:
-                    cas_pdf_base64 = base64.b64encode(f.read()).decode()
+            return await orchestrator_client.invoke_workflow(
+                ui_action="EXTRACT_SECURITIES",
+                data=data,
+            )
 
         return await self._request(
             method="POST",
             endpoint=ENDPOINTS["portfolio_analyze"],
-            json={"cas_pdf_base64": cas_pdf_base64, "portfolio_data": portfolio_data},
+            json=data,
             timeout=self.upload_timeout,
         )
     
