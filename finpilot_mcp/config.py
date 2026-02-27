@@ -1,14 +1,12 @@
 """Configuration management for FinPilot MCP Server."""
 
 import os
-from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from finpilot_mcp.constants import (
     DEFAULT_API_GATEWAY_URL,
-    LOCAL_API_GATEWAY_URL,
     LOCAL_ORCHESTRATOR_URL,
 )
 
@@ -49,12 +47,12 @@ class Settings(BaseSettings):
     )
 
     # Authentication (optional for local dev, required for production)
-    api_key: Optional[str] = Field(
+    api_key: str | None = Field(
         default=None,
         description="FinPilot API Key (for API key auth)"
     )
 
-    jwt_token: Optional[str] = Field(
+    jwt_token: str | None = Field(
         default=None,
         description="JWT token (for JWT auth)"
     )

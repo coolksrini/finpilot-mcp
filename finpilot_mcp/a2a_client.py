@@ -6,7 +6,8 @@ This client sends messages to the orchestrator and receives streamed responses.
 
 import json
 import logging
-from typing import Any, AsyncIterator, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 
@@ -32,7 +33,7 @@ class A2AClient:
     async def send_message(
         self,
         message: str,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Send message to agent and stream responses.
 
@@ -84,7 +85,7 @@ class A2AClient:
         self,
         ui_action: str,
         data: dict[str, Any],
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         """Invoke a workflow on the orchestrator.
 
@@ -178,7 +179,7 @@ class SimpleA2AClient:
             error_data = {}
             try:
                 error_data = e.response.json()
-            except:
+            except Exception:
                 pass
             return {
                 "status": "error",

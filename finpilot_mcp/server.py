@@ -4,7 +4,6 @@ Exposes FinPilot capabilities via MCP protocol.
 All business logic runs on FinPilot API Gateway (deployed on GCP).
 """
 
-import os
 import sys
 from typing import Any
 
@@ -636,12 +635,12 @@ Security:
 
     if settings.is_local_dev:
         print("[FinPilot MCP] Running in LOCAL DEVELOPMENT mode", file=sys.stderr)
-        print(f"[FinPilot MCP] Connecting directly to orchestrator", file=sys.stderr)
+        print("[FinPilot MCP] Connecting directly to orchestrator", file=sys.stderr)
 
     # Run in appropriate mode
     if args.mode == "stdio":
         # STDIO mode - for Claude Desktop
-        print(f"[FinPilot MCP] Starting in STDIO mode", file=sys.stderr)
+        print("[FinPilot MCP] Starting in STDIO mode", file=sys.stderr)
         print(f"[FinPilot MCP] Backend: {settings.effective_backend_url}", file=sys.stderr)
 
         # Run MCP server in stdio mode

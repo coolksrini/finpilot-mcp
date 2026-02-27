@@ -7,19 +7,18 @@ ARCHITECTURE:
 The gateway is just a proxy with rate limiting. For local dev, we bypass it.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
 from finpilot_mcp.config import settings
 from finpilot_mcp.constants import ENDPOINTS
-from finpilot_mcp.a2a_client import SimpleA2AClient
 
 
 class FinPilotAPIError(Exception):
     """Error calling FinPilot API."""
     
-    def __init__(self, status_code: int, message: str, details: Optional[dict] = None):
+    def __init__(self, status_code: int, message: str, details: dict | None = None):
         self.status_code = status_code
         self.message = message
         self.details = details or {}
@@ -57,8 +56,8 @@ class FinPilotClient:
         self,
         method: str,
         endpoint: str,
-        json: Optional[dict] = None,
-        timeout: Optional[float] = None,
+        json: dict | None = None,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         """Make HTTP request to API gateway.
         
@@ -136,8 +135,9 @@ class FinPilotClient:
         Returns (full_text, page_count). Runs pdfplumber locally so the
         orchestrator (in Docker) receives text, not a file path or blob.
         """
-        import pdfplumber
         from io import BytesIO
+
+        import pdfplumber
 
         pdf_bytes = await self._read_file_bytes(file_path)
         with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
@@ -154,7 +154,7 @@ class FinPilotClient:
     async def analyze_credit_report(
         self,
         file_path: str,
-        bureau: Optional[str] = None,
+        bureau: str | None = None,
     ) -> dict[str, Any]:
         """Analyze credit report.
 
@@ -194,7 +194,7 @@ class FinPilotClient:
             timeout=self.upload_timeout,
         )
     
-    async def get_credit_health(self, user_id: Optional[str] = None) -> dict[str, Any]:
+    async def get_credit_health(self, user_id: str | None = None) -> dict[str, Any]:
         """Get credit health summary.
 
         LOCAL DEV: Calls orchestrator directly via A2A
@@ -221,8 +221,8 @@ class FinPilotClient:
     
     async def analyze_portfolio(
         self,
-        file_path: Optional[str] = None,
-        portfolio_data: Optional[dict] = None,
+        file_path: str | None = None,
+        portfolio_data: dict | None = None,
     ) -> dict[str, Any]:
         """Analyze investment portfolio.
 
@@ -266,8 +266,8 @@ class FinPilotClient:
     
     async def optimize_loans(
         self,
-        loans: Optional[list[dict]] = None,
-        user_id: Optional[str] = None,
+        loans: list[dict] | None = None,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         """Get loan optimization recommendations.
 
@@ -297,7 +297,7 @@ class FinPilotClient:
         self,
         goals: list[dict],
         current_situation: dict,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         """Create comprehensive financial plan.
 

@@ -14,8 +14,9 @@ Run:
     pytest tests/test_orchestrator_integration.py -v
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 
 @pytest.mark.asyncio
@@ -32,11 +33,13 @@ class TestOrchestratorClient:
 
     async def test_invoke_workflow_creates_message(self):
         """Test that workflow invocation creates proper message structure."""
-        from finpilot_mcp.orchestrator_client import OrchestratorClient
-        from a2a.client import create_text_message_object
         import json
 
-        client = OrchestratorClient()
+        from a2a.client import create_text_message_object
+
+        from finpilot_mcp.orchestrator_client import OrchestratorClient
+
+        OrchestratorClient()
 
         # Test message creation format
         ui_action = "EXTRACT_CREDIT_REPORT"
@@ -73,8 +76,9 @@ class TestFinPilotMCPClient:
 
     async def test_analyze_credit_report_calls_orchestrator(self):
         """Test that analyze_credit_report calls orchestrator in dev mode."""
-        from finpilot_mcp.client import client
         import base64
+
+        from finpilot_mcp.client import client
 
         # Create a small test PDF (just header)
         test_pdf = b"%PDF-1.4\n%EOF"
@@ -109,8 +113,9 @@ class TestEndToEndFlow:
 
     async def test_complete_credit_report_flow(self):
         """Test complete flow: MCP tool → Orchestrator → mcp-core."""
-        from finpilot_mcp.server import analyze_credit_report
         import base64
+
+        from finpilot_mcp.server import analyze_credit_report
 
         # Load a test PDF (you'd need to provide one)
         test_pdf_path = "tests/fixtures/sample_credit_report.pdf"
@@ -132,8 +137,9 @@ class TestEndToEndFlow:
 
     async def test_complete_portfolio_flow(self):
         """Test complete flow for portfolio analysis."""
-        from finpilot_mcp.server import analyze_portfolio
         import base64
+
+        from finpilot_mcp.server import analyze_portfolio
 
         # Load a test CAS PDF
         test_pdf_path = "tests/fixtures/sample_cas.pdf"

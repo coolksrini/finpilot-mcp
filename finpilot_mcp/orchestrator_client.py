@@ -1,14 +1,14 @@
-"""Client for communicating with ADK Orchestrator via A2A protocol.
+"""Simple HTTP client for communicating with ADK Orchestrator.
 
-Uses the official A2A SDK client to communicate with the orchestrator.
+The orchestrator exposes a JSON-RPC interface via ADK's to_a2a().
+We just need to POST messages to it - no complex A2A SDK needed.
 """
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
-from a2a.client import ClientFactory, ClientConfig, create_text_message_object
-from a2a.types import Message, Role, TextPart
+import httpx
 
 from finpilot_mcp.config import settings
 
@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 class OrchestratorClient:
-    """Client for invoking the ADK Orchestrator via A2A protocol.
+    """Client for invoking the ADK Orchestrator via simple HTTP calls.
 
     The orchestrator uses deterministic routing based on ui_action in the message.
     """
 
-    def __init__(self, orchestrator_url: Optional[str] = None):
+    def __init__(self, orchestrator_url: str | None = None):
         """Initialize orchestrator client.
 
         Args:
@@ -29,82 +29,104 @@ class OrchestratorClient:
         """
         self.orchestrator_url = orchestrator_url or settings.effective_orchestrator_url
 
-        # Create A2A client factory with configuration
-        self.client_factory = ClientFactory(
-            ClientConfig(
-                streaming=False,  # We want complete responses, not streaming
-                polling=False,    # No polling needed
-            )
-        )
-
-        # Minimal agent card for the orchestrator
-        # In production, you'd fetch this from the orchestrator's /card endpoint
-        self.agent_card = {
-            "name": "FinPilot Orchestrator",
-            "description": "Multi-agent orchestrator for FinPilot",
-            "url": self.orchestrator_url,
-            "supported_transports": ["jsonrpc"],
-        }
-
     async def invoke_workflow(
         self,
         ui_action: str,
         data: dict[str, Any],
     ) -> dict[str, Any]:
-        """Invoke a workflow on the orchestrator.
+        """Invoke a workflow on the orchestrator via JSON-RPC 2.0.
 
         Args:
-            ui_action: UI action (e.g., "EXTRACT_CREDIT_REPORT", "EXTRACT_SECURITIES")
-            data: Action data (e.g., {"file_uri": "...", "password": "..."})
+            ui_action: UI action (e.g., "EXTRACT_CREDIT_REPORT", "GET_CREDIT_HEALTH")
+            data: Action data
 
         Returns:
-            Complete response from orchestrator
+            Response from orchestrator
 
         Example:
             >>> client = OrchestratorClient()
             >>> result = await client.invoke_workflow(
-            ...     "EXTRACT_CREDIT_REPORT",
-            ...     {"file_uri": "file:///path/to/report.pdf"}
+            ...     "GET_CREDIT_HEALTH",
+            ...     {"user_id": "123"}
             ... )
         """
         try:
-            # Create A2A client for the orchestrator
-            client = self.client_factory.create(self.agent_card)
-
-            # Format message for orchestrator
-            # Orchestrator expects: {"ui_action": "...", "data": {...}}
-            message_content = json.dumps({
+            # Create A2A JSON-RPC 2.0 message
+            # Format: message/send with role=user, parts=[{type: text, text: ...}]
+            message_text = json.dumps({
                 "ui_action": ui_action,
                 "data": data
             })
 
-            # Create A2A message using helper (sets messageId automatically)
-            message = create_text_message_object(content=message_content)
+            jsonrpc_request = {
+                "jsonrpc": "2.0",
+                "method": "message/send",  # A2A message/send method
+                "params": {
+                    "message": {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "type": "text",
+                                "text": message_text
+                            }
+                        ],
+                        "messageId": str(hash(message_text))  # Simple message ID
+                    }
+                },
+                "id": 1
+            }
 
-            # Send message and collect response
-            response_text = ""
-            async for event in client.send_message(message):
-                # event can be (Task, Update) or Message
-                if isinstance(event, Message):
-                    # Extract text from message parts
-                    for part in event.parts:
-                        if hasattr(part, 'text'):
-                            response_text += part.text
-                elif isinstance(event, tuple):
-                    # (Task, Update) tuple - extract from task
-                    task, update = event
-                    if hasattr(task, 'final_message') and task.final_message:
-                        for part in task.final_message.parts:
-                            if hasattr(part, 'text'):
-                                response_text += part.text
+            # Make JSON-RPC POST to orchestrator root endpoint
+            # Use longer timeout for large PDFs (up to 2 minutes)
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    self.orchestrator_url,
+                    json=jsonrpc_request,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    }
+                )
+                response.raise_for_status()
 
-            # Parse JSON response
-            try:
-                return json.loads(response_text)
-            except json.JSONDecodeError:
-                logger.warning(f"Failed to parse orchestrator response as JSON: {response_text[:200]}")
-                return {"response": response_text}
+                # Parse A2A JSON-RPC response
+                result = response.json()
 
+                # Extract result from A2A response
+                if "result" in result:
+                    task = result["result"]
+
+                    # Extract agent response from artifacts
+                    if "artifacts" in task and task["artifacts"]:
+                        artifact = task["artifacts"][0]  # Get first artifact
+                        if "parts" in artifact and artifact["parts"]:
+                            part = artifact["parts"][0]  # Get first part
+                            if "text" in part:
+                                # Try to parse as JSON
+                                try:
+                                    return json.loads(part["text"])
+                                except (json.JSONDecodeError, TypeError):
+                                    return {"response": part["text"]}
+
+                    # If no artifacts, return the task itself
+                    return task
+
+                elif "error" in result:
+                    return {
+                        "status": "error",
+                        "error": result["error"].get("message", str(result["error"])),
+                        "error_type": "JSONRPCError"
+                    }
+                else:
+                    return result
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Orchestrator HTTP error: {e.response.status_code} - {e.response.text}")
+            return {
+                "status": "error",
+                "error": f"HTTP {e.response.status_code}: {e.response.text}",
+                "error_type": "HTTPError"
+            }
         except Exception as e:
             logger.error(f"Orchestrator invocation failed: {e}", exc_info=True)
             return {
@@ -115,32 +137,48 @@ class OrchestratorClient:
 
     async def analyze_credit_report(
         self,
-        file_uri: str,
-        password: Optional[str] = None,
+        pdf_base64: str | None = None,
+        file_uri: str | None = None,
+        password: str | None = None,
+        bureau: str | None = None,
     ) -> dict[str, Any]:
         """Analyze credit report via orchestrator.
 
         Args:
-            file_uri: File URI or path to PDF
+            pdf_base64: Base64-encoded PDF content (preferred)
+            file_uri: File URI or path to PDF (alternative)
             password: Optional PDF password
+            bureau: Credit bureau name (optional)
 
         Returns:
             Credit analysis result
         """
+        data = {"password": password}
+
+        if pdf_base64:
+            data["pdf_base64"] = pdf_base64
+        elif file_uri:
+            data["file_uri"] = file_uri
+        else:
+            return {
+                "status": "error",
+                "error": "Either pdf_base64 or file_uri is required"
+            }
+
+        if bureau:
+            data["bureau"] = bureau
+
         return await self.invoke_workflow(
             ui_action="EXTRACT_CREDIT_REPORT",
-            data={
-                "file_uri": file_uri,
-                "password": password,
-            }
+            data=data
         )
 
     async def analyze_portfolio(
         self,
         file_path: str,
-        password: Optional[str] = None,
-        pan: Optional[str] = None,
-        dob: Optional[str] = None,
+        password: str | None = None,
+        pan: str | None = None,
+        dob: str | None = None,
     ) -> dict[str, Any]:
         """Analyze portfolio/CAS via orchestrator.
 
@@ -160,6 +198,70 @@ class OrchestratorClient:
                 "password": password,
                 "pan": pan,
                 "dob": dob,
+            }
+        )
+
+    async def get_credit_health(
+        self,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Get credit health summary via orchestrator.
+
+        Args:
+            user_id: Optional user ID
+
+        Returns:
+            Credit health summary
+        """
+        return await self.invoke_workflow(
+            ui_action="GET_CREDIT_HEALTH",
+            data={"user_id": user_id} if user_id else {}
+        )
+
+    async def optimize_loans(
+        self,
+        loans: list[dict] | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Get loan optimization recommendations via orchestrator.
+
+        Args:
+            loans: List of loan details
+            user_id: Optional user ID
+
+        Returns:
+            Loan optimization recommendations
+        """
+        return await self.invoke_workflow(
+            ui_action="OPTIMIZE_LOANS",
+            data={
+                "loans": loans,
+                "user_id": user_id,
+            }
+        )
+
+    async def create_financial_plan(
+        self,
+        goals: list[dict],
+        current_situation: dict,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create financial plan via orchestrator.
+
+        Args:
+            goals: List of financial goals
+            current_situation: Current financial status
+            user_id: Optional user ID
+
+        Returns:
+            Financial plan
+        """
+        return await self.invoke_workflow(
+            ui_action="CREATE_FINANCIAL_PLAN",
+            data={
+                "goals": goals,
+                "current_situation": current_situation,
+                "user_id": user_id,
             }
         )
 
