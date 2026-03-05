@@ -21,13 +21,14 @@ class OrchestratorClient:
     The orchestrator uses deterministic routing based on ui_action in the message.
     """
 
-    def __init__(self, orchestrator_url: str | None = None):
+    def __init__(self, gateway_url: str | None = None):
         """Initialize orchestrator client.
 
         Args:
-            orchestrator_url: URL of the orchestrator (default: from settings)
+            gateway_url: Auth Service URL (default: from settings).
+                         Requests are proxied through Auth Service → Orchestrator.
         """
-        self.orchestrator_url = orchestrator_url or settings.effective_orchestrator_url
+        self.gateway_url = gateway_url or settings.gateway_url
 
     async def invoke_workflow(
         self,
@@ -53,10 +54,7 @@ class OrchestratorClient:
         try:
             # Create A2A JSON-RPC 2.0 message
             # Format: message/send with role=user, parts=[{type: text, text: ...}]
-            message_text = json.dumps({
-                "ui_action": ui_action,
-                "data": data
-            })
+            message_text = json.dumps({"ui_action": ui_action, "data": data})
 
             jsonrpc_request = {
                 "jsonrpc": "2.0",
@@ -64,28 +62,28 @@ class OrchestratorClient:
                 "params": {
                     "message": {
                         "role": "user",
-                        "parts": [
-                            {
-                                "type": "text",
-                                "text": message_text
-                            }
-                        ],
-                        "messageId": str(hash(message_text))  # Simple message ID
+                        "parts": [{"type": "text", "text": message_text}],
+                        "messageId": str(hash(message_text)),  # Simple message ID
                     }
                 },
-                "id": 1
+                "id": 1,
             }
 
-            # Make JSON-RPC POST to orchestrator root endpoint
+            # Build request headers — include auth if api_key is set
+            headers: dict[str, str] = {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            }
+            if settings.api_key:
+                headers["Authorization"] = f"Bearer {settings.api_key}"
+
+            # POST JSON-RPC to Auth Service gateway (proxied → Orchestrator)
             # Use longer timeout for large PDFs (up to 2 minutes)
             async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.post(
-                    self.orchestrator_url,
+                    self.gateway_url,
                     json=jsonrpc_request,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Accept": "application/json"
-                    }
+                    headers=headers,
                 )
                 response.raise_for_status()
 
@@ -115,7 +113,7 @@ class OrchestratorClient:
                     return {
                         "status": "error",
                         "error": result["error"].get("message", str(result["error"])),
-                        "error_type": "JSONRPCError"
+                        "error_type": "JSONRPCError",
                     }
                 else:
                     return result
@@ -125,15 +123,11 @@ class OrchestratorClient:
             return {
                 "status": "error",
                 "error": f"HTTP {e.response.status_code}: {e.response.text}",
-                "error_type": "HTTPError"
+                "error_type": "HTTPError",
             }
         except Exception as e:
             logger.error(f"Orchestrator invocation failed: {e}", exc_info=True)
-            return {
-                "status": "error",
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            return {"status": "error", "error": str(e), "error_type": type(e).__name__}
 
     async def analyze_credit_report(
         self,
@@ -160,18 +154,12 @@ class OrchestratorClient:
         elif file_uri:
             data["file_uri"] = file_uri
         else:
-            return {
-                "status": "error",
-                "error": "Either pdf_base64 or file_uri is required"
-            }
+            return {"status": "error", "error": "Either pdf_base64 or file_uri is required"}
 
         if bureau:
             data["bureau"] = bureau
 
-        return await self.invoke_workflow(
-            ui_action="EXTRACT_CREDIT_REPORT",
-            data=data
-        )
+        return await self.invoke_workflow(ui_action="EXTRACT_CREDIT_REPORT", data=data)
 
     async def analyze_portfolio(
         self,
@@ -198,7 +186,7 @@ class OrchestratorClient:
                 "password": password,
                 "pan": pan,
                 "dob": dob,
-            }
+            },
         )
 
     async def get_credit_health(
@@ -213,10 +201,7 @@ class OrchestratorClient:
         Returns:
             Credit health summary
         """
-        return await self.invoke_workflow(
-            ui_action="GET_CREDIT_HEALTH",
-            data={"user_id": user_id} if user_id else {}
-        )
+        return await self.invoke_workflow(ui_action="GET_CREDIT_HEALTH", data={"user_id": user_id} if user_id else {})
 
     async def optimize_loans(
         self,
@@ -237,7 +222,7 @@ class OrchestratorClient:
             data={
                 "loans": loans,
                 "user_id": user_id,
-            }
+            },
         )
 
     async def create_financial_plan(
@@ -262,7 +247,7 @@ class OrchestratorClient:
                 "goals": goals,
                 "current_situation": current_situation,
                 "user_id": user_id,
-            }
+            },
         )
 
 

@@ -3,126 +3,103 @@
 **AI Financial Co-Pilot for Claude Desktop and VS Code**
 
 MCP server providing financial analysis capabilities through the Model Context Protocol.
+Requests flow through the FinPilot Auth Service, which validates credentials and routes
+to the private orchestrator.
 
 ## Features
 
-- 🔌 Native integration with Claude Desktop and VS Code
-- ⚡ Cloud-powered analysis (no local computation required)
-- 🔒 Secure API key authentication
-- 🚀 Easy setup with `uvx` or `pip`
+- Native integration with Claude Desktop and VS Code
+- Zero-config guest mode — stateless calculation tools work without an account
+- Authenticated mode — full personal finance tools (credit reports, portfolio, LAMF)
+- Cloud-powered analysis (no local computation required)
 
-## Installation
+## Claude Desktop Setup
 
-**Using uvx (recommended - no installation needed):**
+Edit Claude Desktop config:
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
-```bash
-uvx finpilot-mcp --mode stdio
-```
+### Zero-config (guest mode — stateless tools only)
 
-**Using pip:**
-
-```bash
-pip install finpilot-mcp
-```
-
-## Configuration for Claude Desktop
-
-1. Get your API key from your FinPilot deployment
-
-2. Edit Claude Desktop config:
-   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-
-**Using uvx:**
+No account or API key needed. Stateless calculation tools (loan optimizer, APR
+calculator, etc.) work out of the box. Personal finance tools (credit report analysis,
+portfolio) require sign-in.
 
 ```json
 {
   "mcpServers": {
     "finpilot": {
-      "command": "uvx",
-      "args": ["finpilot-mcp", "--mode", "stdio"],
+      "command": "uv",
+      "args": ["run", "finpilot-mcp"]
+    }
+  }
+}
+```
+
+### Authenticated (full access)
+
+Generate an `fp_` API key from [myfinpilot.io](https://myfinpilot.io) → Settings →
+API Tokens, then add it here:
+
+```json
+{
+  "mcpServers": {
+    "finpilot": {
+      "command": "uv",
+      "args": ["run", "finpilot-mcp"],
       "env": {
-        "FINPILOT_API_KEY": "your-api-key-here",
-        "FINPILOT_API_GATEWAY_URL": "https://your-deployment.example.com"
+        "FINPILOT_GATEWAY_URL": "https://<auth-service>.run.app",
+        "FINPILOT_API_KEY": "fp_your_token_here"
       }
     }
   }
 }
 ```
 
-**Using pip:**
-
-```json
-{
-  "mcpServers": {
-    "finpilot": {
-      "command": "python",
-      "args": ["-m", "finpilot_mcp.server", "--mode", "stdio"],
-      "env": {
-        "FINPILOT_API_KEY": "your-api-key-here",
-        "FINPILOT_API_GATEWAY_URL": "https://your-deployment.example.com"
-      }
-    }
-  }
-}
-```
-
-3. Restart Claude Desktop
+Restart Claude Desktop after editing.
 
 ## Environment Variables
 
-**Required:**
-- `FINPILOT_API_KEY` - Your API key
-- `FINPILOT_API_GATEWAY_URL` - Your FinPilot API Gateway URL
-
-**Optional:**
-- `ENVIRONMENT` - `production`, `staging`, or `development` (default: production)
+| Variable | Default | Description |
+|---|---|---|
+| `FINPILOT_GATEWAY_URL` | `http://localhost:8080` | Auth Service URL |
+| `FINPILOT_API_KEY` | _(none)_ | API key (`fp_...`). Omit for guest mode. |
 
 ## Command Line Usage
 
 ```bash
-# STDIO mode (for Claude Desktop)
-FINPILOT_API_KEY=your-key \
-FINPILOT_API_GATEWAY_URL=https://api.example.com \
-python -m finpilot_mcp.server --mode stdio
+# Guest mode (zero-config)
+uv run finpilot-mcp
 
-# HTTP mode (for testing)
-FINPILOT_API_KEY=your-key \
-FINPILOT_API_GATEWAY_URL=https://api.example.com \
-python -m finpilot_mcp.server --mode http --port 8002
+# Authenticated mode
+FINPILOT_GATEWAY_URL=https://<auth-service>.run.app \
+FINPILOT_API_KEY=fp_your_token_here \
+uv run finpilot-mcp
 
-# Local development
-FINPILOT_API_KEY=your-key \
-python -m finpilot_mcp.server \
-  --mode stdio \
-  --api-gateway-url http://localhost:8000 \
-  --environment development
+# HTTP mode (for local testing)
+uv run finpilot-mcp --mode http --port 8002
 ```
 
 **CLI Options:**
-- `--mode` - Transport mode: `stdio` or `http`
-- `--host` - HTTP server host (default: 0.0.0.0)
-- `--port` - HTTP server port (default: 8002)
-- `--api-gateway-url` - Override API Gateway URL
-- `--environment` - Override environment
-- `--reload` - Enable auto-reload for development
-
-**Security:** Secrets (API keys) must be set via environment variables, never via CLI arguments.
+- `--mode` — Transport mode: `stdio` (default) or `http`
+- `--host` — HTTP server host (default: 0.0.0.0)
+- `--port` — HTTP server port (default: 8002)
+- `--reload` — Enable auto-reload for development
 
 ## Available Tools
 
 ### Credit Analysis
-- `analyze_credit_report` - Analyze CIBIL/Experian/Equifax reports
-- `get_credit_health` - Credit health summary
+- `analyze_credit_report` — Analyze CIBIL/Experian/Equifax reports
+- `get_credit_health` — Credit health summary
 
 ### Portfolio Analysis
-- `analyze_portfolio` - Analyze CAS statements or portfolio data
+- `analyze_portfolio` — Analyze CAS statements or portfolio data
 
 ### Loan Optimization
-- `optimize_loans` - LAMF and refinancing recommendations
+- `optimize_loans` — LAMF and refinancing recommendations
 
 ### Financial Planning
-- `create_financial_plan` - Goal-based financial planning
+- `create_financial_plan` — Goal-based financial planning
 
 ## Architecture
 
@@ -135,44 +112,47 @@ python -m finpilot_mcp.server \
 ┌─────────────────────────────────────┐
 │  finpilot-mcp (This Package)        │
 │  - Lightweight MCP wrapper          │
-│  - HTTP client to API Gateway       │
+│  - Optional FINPILOT_API_KEY auth   │
 │  - No business logic                │
 └────────────┬────────────────────────┘
-             │ HTTPS REST API
+             │ HTTPS + optional Bearer token
              ▼
 ┌─────────────────────────────────────┐
-│  FinPilot API Gateway (Backend)     │
-│  - Authentication                   │
-│  - Multi-Agent Orchestration        │
-│  - Business Logic & Algorithms      │
+│  Auth Service (Public entry point)  │
+│  - Token validation / guest assign  │
+│  - In-process rate limiting         │
+│  - Injects X-User-* headers         │
+└────────────┬────────────────────────┘
+             │ SA identity token (private)
+             ▼
+┌─────────────────────────────────────┐
+│  Orchestrator (Private Cloud Run)   │
+│  - Multi-agent ADK orchestration    │
+│  - Business logic & algorithms      │
 └─────────────────────────────────────┘
 ```
 
 ## Development
 
 ```bash
-# Clone repository
-git clone https://github.com/YOUR_ORG/finpilot-mcp.git
-cd finpilot-mcp
-
 # Install dependencies
-uv pip install -e ".[dev]"
+cd backend/finpilot-mcp
+uv sync
+
+# Run in HTTP mode for local testing
+FINPILOT_GATEWAY_URL=http://localhost:8080 \
+uv run finpilot-mcp --mode http --port 8002
 
 # Run tests
-pytest
-
-# Run in HTTP mode for testing
-FINPILOT_API_KEY=test \
-FINPILOT_API_GATEWAY_URL=http://localhost:8000 \
-python -m finpilot_mcp.server --mode http
+uv run pytest
 ```
 
 ## Security
 
-- ✅ All API communication over HTTPS
-- ✅ API keys via environment variables only
-- ✅ No sensitive data stored locally
-- ✅ Secrets never in CLI arguments or code
+- All API communication over HTTPS
+- API keys via environment variables only
+- No sensitive data stored locally
+- Secrets never in CLI arguments or code
 
 ## License
 

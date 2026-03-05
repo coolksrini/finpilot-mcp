@@ -1,117 +1,46 @@
 """Configuration management for FinPilot MCP Server."""
 
-import os
-
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from finpilot_mcp.constants import (
-    DEFAULT_API_GATEWAY_URL,
-    LOCAL_ORCHESTRATOR_URL,
-)
+from finpilot_mcp.constants import DEFAULT_GATEWAY_URL
 
 
 class Settings(BaseSettings):
     """FinPilot MCP Server settings.
 
-    All settings can be overridden via environment variables.
+    All settings are read from environment variables (FINPILOT_ prefix):
 
-    LOCAL DEVELOPMENT (default):
-    - Calls orchestrator directly (http://localhost:3000)
-    - No authentication required
-    - Set ENVIRONMENT=development
+    FINPILOT_GATEWAY_URL  Auth Service URL — public entry point for all FinPilot
+                          API traffic.  Defaults to http://localhost:8080.
+                          Set this to your deployed Auth Service URL for production.
 
-    PRODUCTION:
-    - Calls API Gateway (https://api.finpilot.ai)
-    - Authentication required (API key or JWT)
-    - Set ENVIRONMENT=production
+    FINPILOT_API_KEY      Optional API key (fp_...).  If set, requests are sent as
+                          an authenticated user.  If omitted, guest mode is used
+                          (stateless calculation tools only).
     """
 
     model_config = SettingsConfigDict(
         env_file=".env",
+        env_prefix="FINPILOT_",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
 
-    # API Gateway URL (production only)
-    api_gateway_url: str = Field(
-        default=DEFAULT_API_GATEWAY_URL,
-        description="FinPilot API Gateway URL (production)"
+    gateway_url: str = Field(
+        default=DEFAULT_GATEWAY_URL,
+        description="FinPilot Auth Service URL (FINPILOT_GATEWAY_URL)",
     )
 
-    # Orchestrator URL (local development - direct connection)
-    orchestrator_url: str = Field(
-        default=LOCAL_ORCHESTRATOR_URL,
-        description="ADK Orchestrator URL (local dev)"
-    )
-
-    # Authentication (optional for local dev, required for production)
     api_key: str | None = Field(
         default=None,
-        description="FinPilot API Key (for API key auth)"
+        description="FinPilot API key (FINPILOT_API_KEY). Omit for guest mode.",
     )
 
-    jwt_token: str | None = Field(
-        default=None,
-        description="JWT token (for JWT auth)"
-    )
+    request_timeout: float = Field(default=30.0, description="Default request timeout in seconds")
 
-    # Environment
-    environment: str = Field(
-        default="development",  # Default to local development
-        description="Environment: production, staging, development"
-    )
-
-    # Use direct orchestrator connection (bypasses gateway)
-    use_direct_orchestrator: bool = Field(
-        default=True,  # Default to direct for local dev
-        description="Use direct orchestrator connection (local dev only)"
-    )
-
-    # Timeouts
-    request_timeout: float = Field(
-        default=30.0,
-        description="Default request timeout in seconds"
-    )
-
-    upload_timeout: float = Field(
-        default=120.0,
-        description="Upload request timeout in seconds"
-    )
-
-    @property
-    def is_local_dev(self) -> bool:
-        """Check if running in local development mode."""
-        return self.environment == "development"
-
-    @property
-    def effective_orchestrator_url(self) -> str:
-        """Get effective orchestrator URL for direct connection."""
-        return os.getenv("FINPILOT_ORCHESTRATOR_URL", self.orchestrator_url)
-
-    @property
-    def effective_backend_url(self) -> str:
-        """Get effective backend URL (orchestrator direct or API gateway).
-
-        LOCAL DEV: http://localhost:3000 (orchestrator direct)
-        PRODUCTION: https://api.finpilot.ai (API gateway)
-        """
-        if self.is_local_dev and self.use_direct_orchestrator:
-            return self.effective_orchestrator_url
-
-        # Production or when gateway is explicitly set
-        return os.getenv("FINPILOT_API_GATEWAY_URL", self.api_gateway_url)
-
-    @property
-    def has_auth(self) -> bool:
-        """Check if any authentication is configured.
-
-        Auth is optional for local development, required for production.
-        """
-        if self.is_local_dev:
-            return True  # Allow unauthenticated local development
-        return self.api_key is not None or self.jwt_token is not None
+    upload_timeout: float = Field(default=120.0, description="Upload request timeout in seconds")
 
 
 # Global settings instance

@@ -1,7 +1,8 @@
 """FinPilot MCP Server - Public interface for Claude Desktop and VS Code.
 
 Exposes FinPilot capabilities via MCP protocol.
-All business logic runs on FinPilot API Gateway (deployed on GCP).
+Requests flow through the FinPilot Auth Service (public entry point) which
+validates credentials and proxies to the private orchestrator.
 """
 
 import sys
@@ -11,7 +12,7 @@ from fastmcp import FastMCP
 from fastmcp.prompts import Message
 
 from finpilot_mcp.client import client
-from finpilot_mcp.config import settings
+from finpilot_mcp.config import settings  # noqa: F401 — referenced in main()
 
 # Initialize MCP server
 mcp = FastMCP(
@@ -31,6 +32,7 @@ mcp = FastMCP(
 # ============================================================================
 # MCP Tools - Credit Analysis
 # ============================================================================
+
 
 @mcp.tool()
 async def analyze_credit_report(
@@ -63,10 +65,10 @@ async def analyze_credit_report(
 @mcp.tool()
 async def get_credit_health(user_id: str | None = None) -> dict[str, Any]:
     """Get current credit health summary.
-    
+
     Args:
         user_id: User ID (optional - uses authenticated user if not provided)
-        
+
     Returns:
         Credit health metrics:
         - Current credit score and trend
@@ -90,6 +92,7 @@ async def get_credit_health(user_id: str | None = None) -> dict[str, Any]:
 # ============================================================================
 # MCP Tools - Portfolio Analysis
 # ============================================================================
+
 
 @mcp.tool()
 async def analyze_portfolio(
@@ -126,17 +129,18 @@ async def analyze_portfolio(
 # MCP Tools - Loan Optimization
 # ============================================================================
 
+
 @mcp.tool()
 async def optimize_loans(
     loans: list[dict] | None = None,
     user_id: str | None = None,
 ) -> dict[str, Any]:
     """Get loan optimization recommendations.
-    
+
     Args:
         loans: List of loans with details (outstanding, apr, emi, tenure)
         user_id: User ID (uses authenticated user's loans if not provided)
-        
+
     Returns:
         Optimization recommendations:
         - LAMF swap opportunities (save on interest by pledging MF/stocks)
@@ -161,6 +165,7 @@ async def optimize_loans(
 # MCP Tools - Financial Planning
 # ============================================================================
 
+
 @mcp.tool()
 async def create_financial_plan(
     goals: list[dict],
@@ -168,14 +173,14 @@ async def create_financial_plan(
     user_id: str | None = None,
 ) -> dict[str, Any]:
     """Create comprehensive financial plan based on goals and current situation.
-    
+
     Args:
         goals: List of financial goals (retirement, house, education, etc.)
                Each goal: {name, target_amount, target_date, priority}
         current_situation: Current financial status
                           {income, expenses, assets, liabilities, risk_profile}
         user_id: User ID
-        
+
     Returns:
         Comprehensive financial plan:
         - Goal-wise allocation strategy
@@ -201,12 +206,15 @@ async def create_financial_plan(
 # MCP Resources - User Data
 # ============================================================================
 
+
 @mcp.resource("user://profile")
 async def get_user_profile() -> str:
     """Get authenticated user's financial profile."""
-    if not settings.has_auth:
-        return "No authentication configured. Set FINPILOT_API_KEY or FINPILOT_JWT_TOKEN environment variable."
-    
+    if not settings.api_key:
+        return (
+            "No API key configured. Set FINPILOT_API_KEY to your fp_... token "
+            "to access personal finance features. Generate a key at myfinpilot.io."
+        )
     # TODO: Implement user profile fetching
     return "User profile resource - to be implemented"
 
@@ -214,9 +222,11 @@ async def get_user_profile() -> str:
 @mcp.resource("user://portfolio")
 async def get_user_portfolio() -> str:
     """Get authenticated user's investment portfolio."""
-    if not settings.has_auth:
-        return "No authentication configured. Set FINPILOT_API_KEY or FINPILOT_JWT_TOKEN environment variable."
-    
+    if not settings.api_key:
+        return (
+            "No API key configured. Set FINPILOT_API_KEY to your fp_... token "
+            "to access personal finance features. Generate a key at myfinpilot.io."
+        )
     # TODO: Implement portfolio fetching
     return "User portfolio resource - to be implemented"
 
@@ -224,6 +234,7 @@ async def get_user_portfolio() -> str:
 # ============================================================================
 # MCP Prompts - Workflow Entry Points
 # ============================================================================
+
 
 @mcp.prompt(
     title="Analyze Credit Report",
@@ -243,7 +254,8 @@ def credit_report_analysis(
     lamf_note = (
         "\n\nAfter credit analysis, also call `optimize_loans` with the extracted "
         "loan data to identify LAMF swap opportunities and calculate potential annual savings."
-        if find_lamf_opportunities else ""
+        if find_lamf_opportunities
+        else ""
     )
     return f"""You are a credit analyst for Indian households working with a {bureau_upper} credit report.
 
@@ -455,6 +467,7 @@ If not, I can walk you through downloading one for free."""
 # MCP Prompts - Expert Persona
 # ============================================================================
 
+
 @mcp.prompt(
     title="LAMF Expert Mode",
     tags={"persona", "lamf"},
@@ -523,6 +536,7 @@ knowledge of the Indian lending market as of early 2026.
 # MCP Prompts - General
 # ============================================================================
 
+
 @mcp.prompt(
     title="Ask FinPilot",
     tags={"general"},
@@ -556,9 +570,10 @@ The user has asked: {user_query}
 # Main Entry Point
 # ============================================================================
 
+
 def main():
     """Main entry point with CLI argument support.
-    
+
     Security: Secrets (API keys, tokens) MUST come from environment variables.
     CLI only accepts non-sensitive configuration.
     """
@@ -568,21 +583,24 @@ def main():
         description="FinPilot MCP Server - AI Financial Co-Pilot",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Environment variables:
+  FINPILOT_GATEWAY_URL   Auth Service URL (default: http://localhost:8080)
+  FINPILOT_API_KEY       API key (fp_...) for authenticated tier. Omit for guest mode.
+
 Examples:
-  # STDIO mode (for Claude Desktop)
-  FINPILOT_API_KEY=your-key python -m finpilot_mcp.server --mode stdio
+  # Guest mode — stateless calculation tools (no API key needed)
+  uv run finpilot-mcp
 
-  # HTTP mode (for testing)
-  FINPILOT_API_KEY=your-key python -m finpilot_mcp.server --mode http --port 8002
+  # Authenticated mode — full personal finance tools
+  FINPILOT_GATEWAY_URL=https://<auth-service>.run.app \\
+  FINPILOT_API_KEY=fp_your_token_here \\
+  uv run finpilot-mcp
 
-  # Override gateway URL (e.g., local development)
-  FINPILOT_API_KEY=your-key python -m finpilot_mcp.server \\
-    --api-gateway-url http://localhost:8000
+  # HTTP mode (for local testing)
+  uv run finpilot-mcp --mode http --port 8002
 
 Security:
-  - API keys and tokens MUST be set via environment variables
-  - Never pass secrets via command line arguments
-  - Set FINPILOT_API_KEY or FINPILOT_JWT_TOKEN in your environment
+  - API keys MUST be set via environment variables, never via CLI args
         """,
     )
 
@@ -592,12 +610,6 @@ Security:
         choices=["stdio", "http"],
         default="stdio",
         help="Transport mode: stdio (for Claude Desktop) or http (for testing/dev)",
-    )
-
-    # Non-sensitive configuration overrides
-    parser.add_argument(
-        "--api-gateway-url",
-        help="Override API Gateway URL (default: https://api.finpilot.ai)",
     )
 
     # HTTP mode settings
@@ -620,38 +632,20 @@ Security:
 
     args = parser.parse_args()
 
-    # Apply non-sensitive CLI overrides to settings
-    if args.api_gateway_url:
-        settings.api_gateway_url = args.api_gateway_url
-
-    # Validate authentication (not required for local development)
-    if not settings.has_auth and not settings.is_local_dev:
-        print("ERROR: No authentication configured!", file=sys.stderr)
-        print("Set FINPILOT_API_KEY or FINPILOT_JWT_TOKEN environment variable.", file=sys.stderr)
-        print("\nExample:", file=sys.stderr)
-        print("  export FINPILOT_API_KEY=your-api-key-here", file=sys.stderr)
-        print("  python -m finpilot_mcp.server --mode stdio", file=sys.stderr)
-        sys.exit(1)
-
-    if settings.is_local_dev:
-        print("[FinPilot MCP] Running in LOCAL DEVELOPMENT mode", file=sys.stderr)
-        print("[FinPilot MCP] Connecting directly to orchestrator", file=sys.stderr)
+    auth_mode = "authenticated" if settings.api_key else "guest"
 
     # Run in appropriate mode
     if args.mode == "stdio":
-        # STDIO mode - for Claude Desktop
         print("[FinPilot MCP] Starting in STDIO mode", file=sys.stderr)
-        print(f"[FinPilot MCP] Backend: {settings.effective_backend_url}", file=sys.stderr)
-
-        # Run MCP server in stdio mode
+        print(f"[FinPilot MCP] Gateway: {settings.gateway_url}", file=sys.stderr)
+        print(f"[FinPilot MCP] Auth: {auth_mode}", file=sys.stderr)
         mcp.run()
     else:
-        # HTTP mode - for testing/development
         import uvicorn
 
         print(f"[FinPilot MCP] Starting HTTP server on http://{args.host}:{args.port}")
-        print(f"[FinPilot MCP] Backend URL: {settings.effective_backend_url}")
-        print(f"[FinPilot MCP] Docs: http://{args.host}:{args.port}/docs")
+        print(f"[FinPilot MCP] Gateway: {settings.gateway_url}")
+        print(f"[FinPilot MCP] Auth: {auth_mode}")
 
         uvicorn.run(
             mcp.http_app,
