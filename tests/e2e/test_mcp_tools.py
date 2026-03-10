@@ -21,9 +21,15 @@ pytestmark = pytest.mark.asyncio
 
 
 async def _parse(result) -> dict:
-    """Parse first text content item from a FastMCP tool call result."""
+    """Parse first text content item from a FastMCP tool call result.
+
+    FastMCP 2.x returns a CallToolResult with a .content list; older builds
+    returned a bare list. Handle both.
+    """
     assert result, "Tool returned empty result"
-    text = result[0].text
+    content = result.content if hasattr(result, "content") else result
+    assert content, "Tool returned empty content"
+    text = content[0].text
     try:
         return json.loads(text)
     except json.JSONDecodeError:
