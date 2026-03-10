@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from finpilot_mcp import machine_id as _machine_id
 from finpilot_mcp.config import settings
 
 logger = logging.getLogger(__name__)
@@ -69,10 +70,11 @@ class OrchestratorClient:
                 "id": 1,
             }
 
-            # Build request headers — include auth if api_key is set
+            # Build request headers — include auth and machine ID
             headers: dict[str, str] = {
                 "Content-Type": "application/json",
                 "Accept": "application/json",
+                "X-Machine-ID": _machine_id.get(),
             }
             if settings.api_key:
                 headers["Authorization"] = f"Bearer {settings.api_key}"

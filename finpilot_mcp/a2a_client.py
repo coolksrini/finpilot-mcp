@@ -100,10 +100,7 @@ class A2AClient:
             Final response from orchestrator
         """
         # Format message as JSON for orchestrator
-        message = json.dumps({
-            "ui_action": ui_action,
-            "data": data
-        })
+        message = json.dumps({"ui_action": ui_action, "data": data})
 
         # Collect all events
         response_text = ""
@@ -159,10 +156,7 @@ class SimpleA2AClient:
             Complete response from orchestrator
         """
         # Construct request
-        request_data = {
-            "ui_action": ui_action,
-            "data": data
-        }
+        request_data = {"ui_action": ui_action, "data": data}
 
         # For simplicity, call orchestrator's custom endpoint if available
         # Or use standard A2A invoke endpoint
@@ -181,15 +175,7 @@ class SimpleA2AClient:
                 error_data = e.response.json()
             except Exception:
                 pass
-            return {
-                "status": "error",
-                "error": f"HTTP {e.response.status_code}",
-                "details": error_data
-            }
+            return {"status": "error", "error": f"HTTP {e.response.status_code}", "details": error_data}
         except httpx.RequestError as e:
             logger.error(f"Failed to connect to orchestrator: {e}")
-            return {
-                "status": "error",
-                "error": "Connection failed",
-                "details": str(e)
-            }
+            return {"status": "error", "error": "Connection failed", "details": str(e)}

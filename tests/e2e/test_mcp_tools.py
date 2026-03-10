@@ -101,7 +101,8 @@ class TestGuestModeLoanOptimisation:
             },
         )
         data = await _parse(result)
-        assert data.get("status") in ("success", "error"), f"Unexpected: {data}"
+        assert data.get("status") == "success", f"Expected success, got: {data}"
+        assert "guest_notice" in data, "Guest notice must be present for unauthenticated calls"
 
     async def test_optimize_credit_card_debt(self, mcp_client):
         """High-APR credit card — prime LAMF swap candidate."""
@@ -120,7 +121,8 @@ class TestGuestModeLoanOptimisation:
             },
         )
         data = await _parse(result)
-        assert data.get("status") in ("success", "error")
+        assert data.get("status") == "success", f"Expected success, got: {data}"
+        assert "guest_notice" in data
 
     async def test_optimize_multiple_loans(self, mcp_client):
         result = await mcp_client.call_tool(
@@ -133,7 +135,8 @@ class TestGuestModeLoanOptimisation:
             },
         )
         data = await _parse(result)
-        assert data.get("status") in ("success", "error")
+        assert data.get("status") == "success", f"Expected success, got: {data}"
+        assert "guest_notice" in data
 
 
 class TestGuestModePortfolioInlineData:
@@ -171,7 +174,9 @@ class TestGuestModePortfolioInlineData:
             },
         )
         data = await _parse(result)
-        assert data.get("status") in ("success", "error")
+        assert data.get("status") == "success", f"Expected success, got: {data}"
+        assert "data" in data, "Success response must contain analysis data"
+        assert "guest_notice" in data, "Guest notice must be present for unauthenticated calls"
 
     async def test_analyze_portfolio_missing_input_returns_error(self, mcp_client):
         """Neither file_path nor portfolio_data — must return error."""
