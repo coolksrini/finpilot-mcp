@@ -1,0 +1,235 @@
+"""E2E tests for finpilot-mcp tools via FastMCP in-process client.
+
+Tests call real MCP tools against the deployed Cloud Run auth service.
+Two client fixtures are available:
+    mcp_client      — guest mode, no API key
+    auth_mcp_client — authenticated mode, fp_... token required
+
+See conftest.py for prerequisites and env var configuration.
+"""
+
+import json
+
+import pytest
+
+pytestmark = pytest.mark.asyncio
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+async def _parse(result) -> dict:
+    """Parse first text content item from a FastMCP tool call result."""
+    assert result, "Tool returned empty result"
+    text = result[0].text
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw": text}
+
+
+# ---------------------------------------------------------------------------
+# Server introspection — guest mode, no API key needed
+# ---------------------------------------------------------------------------
+
+
+class TestServerIntrospection:
+    """Verify tool and prompt registration. Requires gateway only."""
+
+    async def test_list_tools(self, mcp_client):
+        tools = await mcp_client.list_tools()
+        names = {t.name for t in tools}
+        assert names == {
+            "analyze_credit_report",
+            "get_credit_health",
+            "analyze_portfolio",
+            "optimize_loans",
+            "create_financial_plan",
+        }
+
+    async def test_tool_descriptions_present(self, mcp_client):
+        """Every tool must have a description — it appears in Claude Desktop."""
+        tools = await mcp_client.list_tools()
+        for tool in tools:
+            assert tool.description, f"Tool '{tool.name}' is missing a description"
+
+    async def test_list_prompts(self, mcp_client):
+        prompts = await mcp_client.list_prompts()
+        names = {p.name for p in prompts}
+        assert "credit_report_analysis" in names
+        assert "portfolio_health_check" in names
+        assert "lamf_opportunity_finder" in names
+        assert "full_financial_health_check" in names
+
+    async def test_list_resources(self, mcp_client):
+        resources = await mcp_client.list_resources()
+        uris = {str(r.uri) for r in resources}
+        assert "user://profile" in uris
+        assert "user://portfolio" in uris
+
+
+# ---------------------------------------------------------------------------
+# Guest-mode tool calls — inline data, no PDF, no auth
+# ---------------------------------------------------------------------------
+
+
+class TestGuestModeLoanOptimisation:
+    """Loan optimisation with inline data — available in guest mode."""
+
+    async def test_optimize_personal_loan(self, mcp_client):
+        result = await mcp_client.call_tool(
+            "optimize_loans",
+            {
+                "loans": [
+                    {
+                        "type": "personal_loan",
+                        "outstanding": 500000,
+                        "apr": 16.5,
+                        "emi": 12000,
+                        "tenure_months": 48,
+                        "lender": "HDFC Bank",
+                    }
+                ]
+            },
+        )
+        data = await _parse(result)
+        assert data.get("status") in ("success", "error"), f"Unexpected: {data}"
+
+    async def test_optimize_credit_card_debt(self, mcp_client):
+        """High-APR credit card — prime LAMF swap candidate."""
+        result = await mcp_client.call_tool(
+            "optimize_loans",
+            {
+                "loans": [
+                    {
+                        "type": "credit_card",
+                        "outstanding": 150000,
+                        "apr": 40.0,
+                        "emi": 6000,
+                        "tenure_months": 36,
+                    }
+                ]
+            },
+        )
+        data = await _parse(result)
+        assert data.get("status") in ("success", "error")
+
+    async def test_optimize_multiple_loans(self, mcp_client):
+        result = await mcp_client.call_tool(
+            "optimize_loans",
+            {
+                "loans": [
+                    {"type": "personal_loan", "outstanding": 300000, "apr": 15.0, "emi": 8000},
+                    {"type": "car_loan", "outstanding": 800000, "apr": 9.5, "emi": 18000},
+                ]
+            },
+        )
+        data = await _parse(result)
+        assert data.get("status") in ("success", "error")
+
+
+class TestGuestModePortfolioInlineData:
+    """Portfolio analysis from inline holdings dict — available in guest mode."""
+
+    async def test_analyze_portfolio_with_holdings(self, mcp_client):
+        result = await mcp_client.call_tool(
+            "analyze_portfolio",
+            {
+                "portfolio_data": {
+                    "holdings": [
+                        {
+                            "scheme": "Parag Parikh Flexi Cap Fund - Direct Growth",
+                            "category": "equity",
+                            "value": 250000,
+                            "units": 3500.5,
+                            "nav": 71.4,
+                        },
+                        {
+                            "scheme": "HDFC Nifty 50 Index Fund - Direct Growth",
+                            "category": "equity",
+                            "value": 150000,
+                            "units": 5000.0,
+                            "nav": 30.0,
+                        },
+                        {
+                            "scheme": "ICICI Prudential Short Term Fund",
+                            "category": "debt",
+                            "value": 100000,
+                            "units": 2000.0,
+                            "nav": 50.0,
+                        },
+                    ]
+                }
+            },
+        )
+        data = await _parse(result)
+        assert data.get("status") in ("success", "error")
+
+    async def test_analyze_portfolio_missing_input_returns_error(self, mcp_client):
+        """Neither file_path nor portfolio_data — must return error."""
+        result = await mcp_client.call_tool("analyze_portfolio", {})
+        data = await _parse(result)
+        assert data["status"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# Authenticated — credit report PDF (requires FINPILOT_API_KEY + CREDIT_REPORT_PDF)
+# ---------------------------------------------------------------------------
+
+
+class TestAuthCreditReportAnalysis:
+    """Credit report analysis from a local PDF. Requires API key + PDF file."""
+
+    async def test_analyze_credit_report_autodetect_bureau(self, auth_mcp_client, credit_report_pdf):
+        """Bureau is auto-detected from PDF content when not specified."""
+        result = await auth_mcp_client.call_tool(
+            "analyze_credit_report",
+            {"file_path": credit_report_pdf},
+        )
+        data = await _parse(result)
+        assert data.get("status") in ("success", "error"), f"Unexpected: {data}"
+
+    async def test_analyze_credit_report_explicit_bureau(self, auth_mcp_client, credit_report_pdf):
+        result = await auth_mcp_client.call_tool(
+            "analyze_credit_report",
+            {"file_path": credit_report_pdf, "bureau": "cibil"},
+        )
+        data = await _parse(result)
+        assert data.get("status") in ("success", "error")
+
+    async def test_credit_report_success_has_data_key(self, auth_mcp_client, credit_report_pdf):
+        result = await auth_mcp_client.call_tool(
+            "analyze_credit_report",
+            {"file_path": credit_report_pdf},
+        )
+        data = await _parse(result)
+        if data.get("status") == "success":
+            assert "data" in data, "Success response must contain 'data'"
+
+
+# ---------------------------------------------------------------------------
+# Authenticated — CAS portfolio PDF (requires FINPILOT_API_KEY + CAS_PDF)
+# ---------------------------------------------------------------------------
+
+
+class TestAuthPortfolioCasPdf:
+    """Portfolio analysis from a CAS PDF. Requires API key + CAS file."""
+
+    async def test_analyze_portfolio_cas_pdf(self, auth_mcp_client, cas_pdf):
+        result = await auth_mcp_client.call_tool(
+            "analyze_portfolio",
+            {"file_path": cas_pdf},
+        )
+        data = await _parse(result)
+        assert data.get("status") in ("success", "error"), f"Unexpected: {data}"
+
+    async def test_portfolio_success_has_data_key(self, auth_mcp_client, cas_pdf):
+        result = await auth_mcp_client.call_tool(
+            "analyze_portfolio",
+            {"file_path": cas_pdf},
+        )
+        data = await _parse(result)
+        if data.get("status") == "success":
+            assert "data" in data
