@@ -12,7 +12,27 @@ from fastmcp import FastMCP
 from fastmcp.prompts import Message
 
 from finpilot_mcp.client import client
-from finpilot_mcp.config import settings  # noqa: F401 — referenced in main()
+from finpilot_mcp.config import settings
+
+# ---------------------------------------------------------------------------
+# Guest-notice helper
+# ---------------------------------------------------------------------------
+
+_GUEST_NOTICE = "Sign in to access your analysis across devices and track your financial health over time."
+
+
+def _success(data: Any) -> dict[str, Any]:
+    """Wrap orchestrator result in a success envelope.
+
+    Adds a ``guest_notice`` field when the request is unauthenticated
+    (no FINPILOT_API_KEY set), prompting the user to sign in for
+    persistent analysis and cross-device access.
+    """
+    resp: dict[str, Any] = {"status": "success", "data": data}
+    if not settings.api_key:
+        resp["guest_notice"] = _GUEST_NOTICE
+    return resp
+
 
 # Initialize MCP server
 mcp = FastMCP(
@@ -57,7 +77,7 @@ async def analyze_credit_report(
     """
     try:
         result = await client.analyze_credit_report(file_path=file_path, bureau=bureau)
-        return {"status": "success", "data": result}
+        return _success(result)
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -78,15 +98,9 @@ async def get_credit_health(user_id: str | None = None) -> dict[str, Any]:
     """
     try:
         result = await client.get_credit_health(user_id)
-        return {
-            "status": "success",
-            "data": result,
-        }
+        return _success(result)
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-        }
+        return {"status": "error", "error": str(e)}
 
 
 # ============================================================================
@@ -120,7 +134,7 @@ async def analyze_portfolio(
         return {"status": "error", "error": "Provide file_path or portfolio_data"}
     try:
         result = await client.analyze_portfolio(file_path=file_path, portfolio_data=portfolio_data)
-        return {"status": "success", "data": result}
+        return _success(result)
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -150,15 +164,9 @@ async def optimize_loans(
     """
     try:
         result = await client.optimize_loans(loans, user_id)
-        return {
-            "status": "success",
-            "data": result,
-        }
+        return _success(result)
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-        }
+        return {"status": "error", "error": str(e)}
 
 
 # ============================================================================
@@ -191,15 +199,9 @@ async def create_financial_plan(
     """
     try:
         result = await client.create_financial_plan(goals, current_situation, user_id)
-        return {
-            "status": "success",
-            "data": result,
-        }
+        return _success(result)
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-        }
+        return {"status": "error", "error": str(e)}
 
 
 # ============================================================================
