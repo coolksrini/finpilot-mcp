@@ -186,6 +186,122 @@ class TestGuestModePortfolioInlineData:
 
 
 # ---------------------------------------------------------------------------
+# Guest — credit report PDF (no API key; uses sample PDF from repo)
+# ---------------------------------------------------------------------------
+
+
+class TestGuestCreditReportAnalysis:
+    """Credit report analysis in guest mode with a real PDF.
+
+    Uses the sample Experian PDF committed at:
+      packages/finpilot-py/tests/resources/credit_bureau/sample_experian.pdf
+
+    Guests must:
+      - Receive status == "success" (not auth_required)
+      - See a guest_notice field in the response
+      - Receive a non-empty data section with credit analysis
+    """
+
+    async def test_guest_credit_report_returns_success(self, mcp_client, guest_credit_report_pdf):
+        """Guest can analyze a credit report PDF — no auth_required returned."""
+        result = await mcp_client.call_tool(
+            "analyze_credit_report",
+            {"file_path": guest_credit_report_pdf},
+        )
+        data = await _parse(result)
+        assert data.get("status") == "success", f"Expected success for guest credit report analysis, got: {data}"
+
+    async def test_guest_credit_report_has_guest_notice(self, mcp_client, guest_credit_report_pdf):
+        """Guest response must carry guest_notice field."""
+        result = await mcp_client.call_tool(
+            "analyze_credit_report",
+            {"file_path": guest_credit_report_pdf},
+        )
+        data = await _parse(result)
+        if data.get("status") == "success":
+            assert "guest_notice" in data, f"guest_notice missing from guest credit report response: {data.keys()}"
+
+    async def test_guest_credit_report_has_data_key(self, mcp_client, guest_credit_report_pdf):
+        """Successful guest response must contain analysis data."""
+        result = await mcp_client.call_tool(
+            "analyze_credit_report",
+            {"file_path": guest_credit_report_pdf},
+        )
+        data = await _parse(result)
+        if data.get("status") == "success":
+            assert "data" in data, f"Success response missing 'data' key: {data.keys()}"
+
+    async def test_guest_credit_report_no_auth_required(self, mcp_client, guest_credit_report_pdf):
+        """Response must never contain auth_required — gating was removed in Task 6."""
+        result = await mcp_client.call_tool(
+            "analyze_credit_report",
+            {"file_path": guest_credit_report_pdf},
+        )
+        data = await _parse(result)
+        assert data.get("status") != "auth_required", (
+            f"auth_required returned for guest — GUEST_GATED_ACTIONS should have been removed: {data}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Guest — CAS portfolio PDF (no API key; uses sample PDF from repo)
+# ---------------------------------------------------------------------------
+
+
+class TestGuestPortfolioCasPdf:
+    """Portfolio analysis in guest mode with a real CAS PDF.
+
+    Uses the sample CDSL CAS PDF committed at:
+      packages/finpilot-py/tests/resources/cas/sample_cdsl_cas.pdf
+
+    Guests must:
+      - Receive status == "success" (not auth_required)
+      - See a guest_notice field in the response
+      - Receive holdings / allocation data
+    """
+
+    async def test_guest_cas_portfolio_returns_success(self, mcp_client, guest_cas_pdf):
+        """Guest can analyze a CAS portfolio PDF — no auth_required returned."""
+        result = await mcp_client.call_tool(
+            "analyze_portfolio",
+            {"file_path": guest_cas_pdf},
+        )
+        data = await _parse(result)
+        assert data.get("status") == "success", f"Expected success for guest portfolio analysis, got: {data}"
+
+    async def test_guest_cas_portfolio_has_guest_notice(self, mcp_client, guest_cas_pdf):
+        """Guest portfolio response must carry guest_notice field."""
+        result = await mcp_client.call_tool(
+            "analyze_portfolio",
+            {"file_path": guest_cas_pdf},
+        )
+        data = await _parse(result)
+        if data.get("status") == "success":
+            assert "guest_notice" in data, f"guest_notice missing from guest portfolio response: {data.keys()}"
+
+    async def test_guest_cas_portfolio_has_data_key(self, mcp_client, guest_cas_pdf):
+        """Successful guest response must contain portfolio analysis data."""
+        result = await mcp_client.call_tool(
+            "analyze_portfolio",
+            {"file_path": guest_cas_pdf},
+        )
+        data = await _parse(result)
+        if data.get("status") == "success":
+            assert "data" in data, f"Success response missing 'data' key: {data.keys()}"
+
+    async def test_guest_cas_portfolio_no_auth_required(self, mcp_client, guest_cas_pdf):
+        """Response must never contain auth_required — gating was removed in Task 6."""
+        result = await mcp_client.call_tool(
+            "analyze_portfolio",
+            {"file_path": guest_cas_pdf},
+        )
+        data = await _parse(result)
+        assert data.get("status") != "auth_required", (
+            f"auth_required returned for guest — GUEST_GATED_ACTIONS should have been removed: {data}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Authenticated — credit report PDF (requires FINPILOT_API_KEY + CREDIT_REPORT_PDF)
 # ---------------------------------------------------------------------------
 

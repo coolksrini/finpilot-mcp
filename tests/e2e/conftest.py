@@ -35,6 +35,7 @@ Run examples:
 # Set env vars BEFORE any finpilot_mcp imports so pydantic-settings picks them
 # up at Settings() initialisation time.
 import os
+from pathlib import Path
 
 DEFAULT_GATEWAY_URL = "https://auth-service-dev-6rs7xh3scq-el.a.run.app"
 os.environ.setdefault("FINPILOT_GATEWAY_URL", DEFAULT_GATEWAY_URL)
@@ -42,7 +43,6 @@ os.environ.setdefault("FINPILOT_GATEWAY_URL", DEFAULT_GATEWAY_URL)
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 from fastmcp import Client  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -129,15 +129,55 @@ async def auth_mcp_client(api_key):
         yield client
 
 
+def _project_root() -> Path:
+    """Return the FinPilot repo root, preferring the FINPILOT_PROJECT_ROOT env var."""
+    env_root = os.environ.get("FINPILOT_PROJECT_ROOT")
+    if env_root:
+        return Path(env_root)
+    # conftest.py lives at backend/finpilot-mcp/tests/e2e/conftest.py
+    return Path(__file__).parents[4]
+
+
+@pytest.fixture(scope="session")
+def guest_credit_report_pdf(mcp_client):
+    """Credit report PDF for guest-mode tests — no API key required.
+
+    Resolution order:
+      1. CREDIT_REPORT_PDF env var (any path)
+      2. packages/finpilot-py/tests/resources/credit_bureau/sample_experian.pdf
+         (committed sample — always available in CI)
+    """
+    path = os.environ.get("CREDIT_REPORT_PDF") or str(
+        _project_root() / "packages/finpilot-py/tests/resources/credit_bureau/sample_experian.pdf"
+    )
+    if not os.path.exists(path):
+        pytest.skip(f"Credit report PDF not found: {path}")
+    return path
+
+
+@pytest.fixture(scope="session")
+def guest_cas_pdf(mcp_client):
+    """CAS portfolio PDF for guest-mode tests — no API key required.
+
+    Resolution order:
+      1. CAS_PDF env var (any path)
+      2. packages/finpilot-py/tests/resources/cas/sample_cdsl_cas.pdf
+         (committed sample — always available in CI)
+    """
+    path = os.environ.get("CAS_PDF") or str(
+        _project_root() / "packages/finpilot-py/tests/resources/cas/sample_cdsl_cas.pdf"
+    )
+    if not os.path.exists(path):
+        pytest.skip(f"CAS PDF not found: {path}")
+    return path
+
+
 @pytest.fixture(scope="session")
 def credit_report_pdf(auth_mcp_client):
     """Path to a CIBIL / Experian / CRIF PDF on the local machine."""
     path = os.environ.get("CREDIT_REPORT_PDF")
     if not path:
-        pytest.skip(
-            "CREDIT_REPORT_PDF not set\n"
-            "  Export: CREDIT_REPORT_PDF=/path/to/cibil.pdf"
-        )
+        pytest.skip("CREDIT_REPORT_PDF not set\n  Export: CREDIT_REPORT_PDF=/path/to/cibil.pdf")
     if not os.path.exists(path):
         pytest.skip(f"File not found: {path}")
     return path
@@ -148,10 +188,7 @@ def cas_pdf(auth_mcp_client):
     """Path to a CAS statement PDF (NSDL / CDSL / CAMS) on the local machine."""
     path = os.environ.get("CAS_PDF")
     if not path:
-        pytest.skip(
-            "CAS_PDF not set\n"
-            "  Export: CAS_PDF=/path/to/cas_statement.pdf"
-        )
+        pytest.skip("CAS_PDF not set\n  Export: CAS_PDF=/path/to/cas_statement.pdf")
     if not os.path.exists(path):
         pytest.skip(f"File not found: {path}")
     return path
