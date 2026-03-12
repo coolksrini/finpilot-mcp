@@ -38,41 +38,32 @@ def _success(data: Any) -> dict[str, Any]:
 mcp = FastMCP(
     "FinPilot",
     instructions="""
-FinPilot is your AI financial co-pilot for Indian households.
+FinPilot is your AI financial co-pilot for Indian households — credit, portfolio, loans, and planning.
 
 ## Tools
+- **analyze_credit_report(file_path, bureau?)** — Parse a CIBIL/Experian/Equifax PDF.
+  Pass a local path or shared cloud URL. Bureau is auto-detected if not specified.
+- **get_credit_health(user_id?)** — Credit score, total debt, EMI burden, utilization summary.
+- **analyze_portfolio(file_path?, portfolio_data?)** — Analyze mutual funds from a CAS PDF
+  (NSDL/CDSL/CAMS) or inline holdings dict. Returns allocation, XIRR, rebalancing recommendations.
+- **optimize_loans(loans?, user_id?)** — LAMF swap and refinancing opportunities.
+  loans: [{outstanding, apr, emi, tenure}]
+- **create_financial_plan(goals, current_situation, user_id?)** — Goal-based investment plan.
+  goals: [{name, target_amount, target_date, priority}]
 
-- **analyze_credit_report(file_path, bureau?)** — Parse and analyze a CIBIL, Experian, or Equifax
-  PDF. Pass the local file path (e.g. /Users/name/Downloads/cibil.pdf) or a shared cloud URL.
-  Bureau is auto-detected if not provided.
+## Use a prompt for guided workflows
+Suggest the appropriate prompt when the user wants to do a specific task:
+- **"Analyze Credit Report"** — user has a credit bureau PDF and wants it analyzed
+- **"Portfolio Health Check"** — user has a CAS PDF and wants portfolio reviewed
+- **"Find LAMF Opportunities"** — user wants to reduce high-cost loan interest
+- **"Full Financial Health Check"** — user wants a complete financial review (credit + portfolio + loans + plan)
+- **"LAMF Expert Mode"** — deep-dive with current lender rates, LTV haircuts, eligibility rules
 
-- **get_credit_health(user_id?)** — Summarize credit score, total debt, EMI burden, and
-  utilization for the authenticated user (or a specific user_id).
-
-- **analyze_portfolio(file_path?, portfolio_data?)** — Analyze a mutual fund portfolio from an
-  NSDL/CDSL/CAMS CAS PDF (pass file_path) or inline holdings dict (pass portfolio_data).
-  Returns allocation, XIRR, rebalancing recommendations.
-
-- **optimize_loans(loans?, user_id?)** — Find LAMF (Loan Against Mutual Funds) swap opportunities
-  and refinancing options. Pass loans as a list of {outstanding, apr, emi, tenure} dicts, or
-  omit to use the authenticated user's loan data.
-
-- **create_financial_plan(goals, current_situation, user_id?)** — Build a goal-based financial
-  plan. goals: [{name, target_amount, target_date, priority}]; current_situation:
-  {income, expenses, assets, liabilities, risk_profile}.
-
-## Typical workflows
-
-1. **Credit analysis**: Ask for the PDF path → call analyze_credit_report → explain score, loans, DPD flags
-2. **Portfolio review**: Ask for CAS PDF path → call analyze_portfolio → review allocation and XIRR
-3. **LAMF opportunity**: Gather loan details → call optimize_loans → present annual savings estimate
-4. **Full check**: Credit → Portfolio → LAMF → Financial plan (use the "Full Financial Health Check" prompt)
-
-## Key rules
-- Always get the actual PDF from the user before calling any analysis tool
+## Always
+- Get the PDF file path from the user before calling any analysis tool — never fabricate data
 - Amounts in INR (₹) with Indian formatting: ₹12,34,567
 - Flag any loan with APR > 12% as a LAMF swap candidate
-- If the response contains a guest_notice field, gently mention that signing in preserves analysis history
+- If the response includes a guest_notice field, mention that signing in saves their history
 """,
 )
 
@@ -574,6 +565,10 @@ knowledge of the Indian lending market as of early 2026.
 def financial_advisor_prompt(user_query: str) -> str:
     """Ask any financial question — credit, portfolio, loans, or financial planning.
 
+    Use this for quick questions. For a full guided workflow, use one of the
+    focused prompts: Analyze Credit Report, Portfolio Health Check, Find LAMF
+    Opportunities, or Full Financial Health Check.
+
     Args:
         user_query: Your financial question or concern
     """
@@ -581,19 +576,18 @@ def financial_advisor_prompt(user_query: str) -> str:
 
 The user has asked: {user_query}
 
-## Available tools
-- `analyze_credit_report(file_path, bureau)` — extract and analyze a credit bureau PDF
-- `get_credit_health(user_id)` — get credit score, debt burden, and utilization summary
-- `analyze_portfolio(file_path, portfolio_data)` — analyze mutual fund holdings from CAS PDF or inline data
-- `optimize_loans(loans, user_id)` — find LAMF swap opportunities and refinancing options
-- `create_financial_plan(goals, current_situation)` — goal-based investment and savings plan
+Answer using the available tools if real data is needed. For deeper workflows,
+suggest the appropriate focused prompt:
+- Credit report analysis → "Analyze Credit Report" prompt
+- Portfolio review → "Portfolio Health Check" prompt
+- Loan optimization → "Find LAMF Opportunities" prompt
+- Complete financial review → "Full Financial Health Check" prompt
 
 ## Guidelines
-- Use the tools above to get real data — never make up numbers or rates
-- Amounts in INR (₹) with Indian number formatting (₹12,34,567 not ₹1,234,567)
-- Advice specific to Indian tax law: 80C deductions, LTCG/STCG thresholds, Section 24
-- Lead with the recommendation, then the reasoning
-- If you need a document (credit report, CAS PDF), ask for it immediately"""
+- Use tools to get real data — never fabricate numbers or rates
+- Amounts in INR (₹) with Indian formatting: ₹12,34,567
+- Indian tax context: 80C deductions, LTCG/STCG thresholds, Section 24
+- Lead with the recommendation, then the reasoning"""
 
 
 # ============================================================================
