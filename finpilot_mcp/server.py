@@ -38,14 +38,42 @@ def _success(data: Any) -> dict[str, Any]:
 mcp = FastMCP(
     "FinPilot",
     instructions="""
-    FinPilot is your AI financial co-pilot for:
-    - Credit report analysis and optimization
-    - Portfolio analysis and recommendations
-    - Loan optimization (switch to LAMF, refinancing)
-    - Comprehensive financial planning
-    
-    All analysis is powered by FinPilot's proprietary algorithms.
-    """,
+FinPilot is your AI financial co-pilot for Indian households.
+
+## Tools
+
+- **analyze_credit_report(file_path, bureau?)** — Parse and analyze a CIBIL, Experian, or Equifax
+  PDF. Pass the local file path (e.g. /Users/name/Downloads/cibil.pdf) or a shared cloud URL.
+  Bureau is auto-detected if not provided.
+
+- **get_credit_health(user_id?)** — Summarize credit score, total debt, EMI burden, and
+  utilization for the authenticated user (or a specific user_id).
+
+- **analyze_portfolio(file_path?, portfolio_data?)** — Analyze a mutual fund portfolio from an
+  NSDL/CDSL/CAMS CAS PDF (pass file_path) or inline holdings dict (pass portfolio_data).
+  Returns allocation, XIRR, rebalancing recommendations.
+
+- **optimize_loans(loans?, user_id?)** — Find LAMF (Loan Against Mutual Funds) swap opportunities
+  and refinancing options. Pass loans as a list of {outstanding, apr, emi, tenure} dicts, or
+  omit to use the authenticated user's loan data.
+
+- **create_financial_plan(goals, current_situation, user_id?)** — Build a goal-based financial
+  plan. goals: [{name, target_amount, target_date, priority}]; current_situation:
+  {income, expenses, assets, liabilities, risk_profile}.
+
+## Typical workflows
+
+1. **Credit analysis**: Ask for the PDF path → call analyze_credit_report → explain score, loans, DPD flags
+2. **Portfolio review**: Ask for CAS PDF path → call analyze_portfolio → review allocation and XIRR
+3. **LAMF opportunity**: Gather loan details → call optimize_loans → present annual savings estimate
+4. **Full check**: Credit → Portfolio → LAMF → Financial plan (use the "Full Financial Health Check" prompt)
+
+## Key rules
+- Always get the actual PDF from the user before calling any analysis tool
+- Amounts in INR (₹) with Indian formatting: ₹12,34,567
+- Flag any loan with APR > 12% as a LAMF swap candidate
+- If the response contains a guest_notice field, gently mention that signing in preserves analysis history
+""",
 )
 
 
@@ -554,9 +582,9 @@ def financial_advisor_prompt(user_query: str) -> str:
 The user has asked: {user_query}
 
 ## Available tools
-- `analyze_credit_report(pdf_base64, bureau)` — extract and analyze a credit bureau PDF
+- `analyze_credit_report(file_path, bureau)` — extract and analyze a credit bureau PDF
 - `get_credit_health(user_id)` — get credit score, debt burden, and utilization summary
-- `analyze_portfolio(cas_pdf_base64, portfolio_data)` — analyze mutual fund holdings from CAS PDF
+- `analyze_portfolio(file_path, portfolio_data)` — analyze mutual fund holdings from CAS PDF or inline data
 - `optimize_loans(loans, user_id)` — find LAMF swap opportunities and refinancing options
 - `create_financial_plan(goals, current_situation)` — goal-based investment and savings plan
 
