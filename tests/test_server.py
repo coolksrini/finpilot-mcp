@@ -73,5 +73,3 @@ class TestFinPilotClient:
             mock_orch.optimize_loans = AsyncMock(return_value={"status": "success", "savings": 60000})
             result = await c.optimize_loans(loans=loans)
             assert result["status"] == "success"
-
-

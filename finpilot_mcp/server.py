@@ -130,7 +130,7 @@ async def get_credit_health(user_id: str | None = None) -> dict[str, Any]:
 @mcp.tool()
 async def analyze_portfolio(
     file_path: str | None = None,
-    portfolio_data: dict | None = None,
+    portfolio_data: dict | str | None = None,
 ) -> dict[str, Any]:
     """Analyze investment portfolio from a CAS PDF or direct data.
 
@@ -149,6 +149,15 @@ async def analyze_portfolio(
         - Rebalancing recommendations
         - Tax optimization opportunities
     """
+    import json as _json
+
+    # Some MCP clients serialize complex params as JSON strings — parse them back
+    if isinstance(portfolio_data, str):
+        try:
+            portfolio_data = _json.loads(portfolio_data)
+        except _json.JSONDecodeError:
+            return {"status": "error", "error": "portfolio_data must be a JSON object or dict"}
+
     if not file_path and not portfolio_data:
         return {"status": "error", "error": "Provide file_path or portfolio_data"}
     try:
@@ -165,7 +174,7 @@ async def analyze_portfolio(
 
 @mcp.tool()
 async def optimize_loans(
-    loans: list[dict] | None = None,
+    loans: list | str | None = None,
     user_id: str | None = None,
 ) -> dict[str, Any]:
     """Get loan optimization recommendations.
@@ -181,6 +190,15 @@ async def optimize_loans(
         - Prepayment analysis
         - Potential annual savings
     """
+    import json as _json
+
+    # Some MCP clients serialize complex params as JSON strings — parse them back
+    if isinstance(loans, str):
+        try:
+            loans = _json.loads(loans)
+        except _json.JSONDecodeError:
+            return {"status": "error", "error": "loans must be a JSON array or list"}
+
     try:
         result = await client.optimize_loans(loans, user_id)
         return _success(result)
@@ -195,8 +213,8 @@ async def optimize_loans(
 
 @mcp.tool()
 async def create_financial_plan(
-    goals: list[dict],
-    current_situation: dict,
+    goals: list | str,
+    current_situation: dict | str,
     user_id: str | None = None,
 ) -> dict[str, Any]:
     """Create comprehensive financial plan based on goals and current situation.
@@ -216,6 +234,20 @@ async def create_financial_plan(
         - Tax optimization strategies
         - Monthly action items
     """
+    import json as _json
+
+    # Some MCP clients serialize complex params as JSON strings — parse them back
+    if isinstance(goals, str):
+        try:
+            goals = _json.loads(goals)
+        except _json.JSONDecodeError:
+            return {"status": "error", "error": "goals must be a JSON array or list"}
+    if isinstance(current_situation, str):
+        try:
+            current_situation = _json.loads(current_situation)
+        except _json.JSONDecodeError:
+            return {"status": "error", "error": "current_situation must be a JSON object or dict"}
+
     try:
         result = await client.create_financial_plan(goals, current_situation, user_id)
         return _success(result)
