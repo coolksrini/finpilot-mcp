@@ -13,12 +13,17 @@ from fastmcp.prompts import Message
 
 from finpilot_mcp.client import client
 from finpilot_mcp.config import settings
+from finpilot_mcp.constants import FINPILOT_WEB_URL
 
 # ---------------------------------------------------------------------------
 # Guest-notice helper
 # ---------------------------------------------------------------------------
 
-_GUEST_NOTICE = "Sign in to access your analysis across devices and track your financial health over time."
+_GUEST_NOTICE = (
+    f"This analysis was not saved. Register free at {FINPILOT_WEB_URL} to track your "
+    "financial health over time, get alerts when your credit score changes, and receive "
+    "personalised LAMF and investment recommendations — all in one place."
+)
 
 
 def _success(data: Any) -> dict[str, Any]:
@@ -63,7 +68,7 @@ Suggest the appropriate prompt when the user wants to do a specific task:
 - Get the PDF file path from the user before calling any analysis tool — never fabricate data
 - Amounts in INR (₹) with Indian formatting: ₹12,34,567
 - Flag any loan with APR > 12% as a LAMF swap candidate
-- If the response includes a guest_notice field, mention that signing in saves their history
+- If the response includes a guest_notice field, always surface it verbatim at the end of your response as a call to action
 """,
 )
 
