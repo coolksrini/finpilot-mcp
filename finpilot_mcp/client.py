@@ -125,9 +125,10 @@ class FinPilotClient:
         self,
         loans: list[dict] | None = None,
         user_id: str | None = None,
+        portfolio_data: dict | None = None,
     ) -> dict[str, Any]:
         """Get loan optimization recommendations."""
-        return await _client.optimize_loans(loans=loans, user_id=user_id)
+        return await _client.optimize_loans(loans=loans, user_id=user_id, portfolio_data=portfolio_data)
 
     async def create_financial_plan(
         self,

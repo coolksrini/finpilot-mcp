@@ -209,12 +209,15 @@ class OrchestratorClient:
         self,
         loans: list[dict] | None = None,
         user_id: str | None = None,
+        portfolio_data: dict | None = None,
     ) -> dict[str, Any]:
         """Get loan optimization recommendations via orchestrator.
 
         Args:
             loans: List of loan details
             user_id: Optional user ID
+            portfolio_data: Portfolio holdings from a prior analyze_portfolio call
+                            (required for LAMF collateral evaluation)
 
         Returns:
             Loan optimization recommendations
@@ -224,6 +227,7 @@ class OrchestratorClient:
             data={
                 "loans": loans,
                 "user_id": user_id,
+                "portfolio_data": portfolio_data,
             },
         )
 

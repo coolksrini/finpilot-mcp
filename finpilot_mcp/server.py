@@ -176,12 +176,16 @@ async def analyze_portfolio(
 async def optimize_loans(
     loans: list | str | None = None,
     user_id: str | None = None,
+    portfolio_data: dict | str | None = None,
 ) -> dict[str, Any]:
     """Get loan optimization recommendations.
 
     Args:
         loans: List of loans with details (outstanding, apr, emi, tenure)
         user_id: User ID (uses authenticated user's loans if not provided)
+        portfolio_data: Portfolio holdings from analyze_portfolio result
+                        (required for LAMF collateral evaluation — pass the
+                        full result from a prior analyze_portfolio call)
 
     Returns:
         Optimization recommendations:
@@ -198,9 +202,14 @@ async def optimize_loans(
             loans = _json.loads(loans)
         except _json.JSONDecodeError:
             return {"status": "error", "error": "loans must be a JSON array or list"}
+    if isinstance(portfolio_data, str):
+        try:
+            portfolio_data = _json.loads(portfolio_data)
+        except _json.JSONDecodeError:
+            return {"status": "error", "error": "portfolio_data must be a JSON object"}
 
     try:
-        result = await client.optimize_loans(loans, user_id)
+        result = await client.optimize_loans(loans, user_id, portfolio_data)
         return _success(result)
     except Exception as e:
         return {"status": "error", "error": str(e)}
