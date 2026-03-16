@@ -6,6 +6,7 @@ We just need to POST messages to it - no complex A2A SDK needed.
 
 import json
 import logging
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
@@ -130,6 +131,110 @@ class OrchestratorClient:
         except Exception as e:
             logger.error(f"Orchestrator invocation failed: {e}", exc_info=True)
             return {"status": "error", "error": str(e), "error_type": type(e).__name__}
+
+    async def invoke_workflow_streaming(
+        self,
+        ui_action: str,
+        data: dict[str, Any],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Invoke workflow via A2A message/stream — yields classified events as they arrive.
+
+        Each yielded dict has a ``type`` field:
+        - ``{"type": "progress", "message": "..."}``  — intermediate status update
+        - ``{"type": "result",   "data": {...}}``      — final artifact (last event)
+        - ``{"type": "error",    "error": "..."}``     — failure
+        """
+        message_text = json.dumps({"ui_action": ui_action, "data": data})
+        jsonrpc_request = {
+            "jsonrpc": "2.0",
+            "method": "message/stream",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": message_text}],
+                    "messageId": str(hash(message_text)),
+                }
+            },
+            "id": 1,
+        }
+        headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "X-Machine-ID": _machine_id.get(),
+        }
+        if settings.api_key:
+            headers["Authorization"] = f"Bearer {settings.api_key}"
+
+        try:
+            async with httpx.AsyncClient(timeout=None) as http:
+                async with http.stream(
+                    "POST", self.gateway_url, json=jsonrpc_request, headers=headers
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        raw = line[5:].strip()
+                        if not raw or raw == "[DONE]":
+                            continue
+                        try:
+                            event = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+
+                        result = event.get("result", {})
+                        kind = result.get("kind")
+
+                        if kind == "artifact-update" and result.get("lastChunk"):
+                            # Final result — parse artifact text as JSON
+                            parts = result.get("artifact", {}).get("parts", [])
+                            text = parts[0].get("text", "") if parts else ""
+                            try:
+                                yield {"type": "result", "data": json.loads(text)}
+                            except json.JSONDecodeError:
+                                yield {"type": "result", "data": {"response": text}}
+
+                        elif kind == "status-update":
+                            state = result.get("status", {}).get("state")
+                            msg_parts = result.get("status", {}).get("message", {}).get("parts", [])
+                            if msg_parts and state == "working":
+                                # Intermediate agent message — surface as progress
+                                msg_text = msg_parts[0].get("text", "")
+                                # Skip internal JSON payloads (error/result blobs)
+                                if msg_text and not msg_text.startswith("{"):
+                                    yield {"type": "progress", "message": msg_text}
+
+                        elif "error" in event:
+                            yield {"type": "error", "error": event["error"].get("message", str(event["error"]))}
+                            return
+
+        except httpx.HTTPStatusError as e:
+            yield {"type": "error", "error": f"HTTP {e.response.status_code}: {e.response.text}"}
+        except Exception as e:
+            logger.error(f"Streaming invocation failed: {e}", exc_info=True)
+            yield {"type": "error", "error": str(e)}
+
+    async def analyze_credit_report_streaming(
+        self,
+        pdf_base64: str | None = None,
+        file_uri: str | None = None,
+        password: str | None = None,
+        bureau: str | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Stream credit report analysis — yields progress + final result events."""
+        data: dict[str, Any] = {"password": password}
+        if pdf_base64:
+            data["pdf_base64"] = pdf_base64
+        elif file_uri:
+            data["file_uri"] = file_uri
+        else:
+            yield {"type": "error", "error": "Either pdf_base64 or file_uri is required"}
+            return
+        if bureau:
+            data["bureau"] = bureau
+
+        async for event in self.invoke_workflow_streaming("EXTRACT_CREDIT_REPORT", data):
+            yield event
 
     async def analyze_credit_report(
         self,
