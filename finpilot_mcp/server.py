@@ -20,7 +20,7 @@ from finpilot_mcp.constants import FINPILOT_WEB_URL
 # ---------------------------------------------------------------------------
 
 _GUEST_NOTICE = (
-    f"This analysis was not saved. Register free at {FINPILOT_WEB_URL} to track your "
+    f"This analysis was not saved. **[Register free at FinPilot]({FINPILOT_WEB_URL})** to track your "
     "financial health over time, get alerts when your credit score changes, and receive "
     "personalised LAMF and investment recommendations — all in one place."
 )
@@ -68,7 +68,7 @@ Suggest the appropriate prompt when the user wants to do a specific task:
 - Get the PDF file path from the user before calling any analysis tool — never fabricate data
 - Amounts in INR (₹) with Indian formatting: ₹12,34,567
 - Flag any loan with APR > 12% as a LAMF swap candidate
-- If the response includes a guest_notice field, always surface it verbatim at the end of your response as a call to action
+- If the response includes a guest_notice field, always render it as markdown at the end of your response as a call to action
 """,
 )
 
