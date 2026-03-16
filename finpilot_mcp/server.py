@@ -8,7 +8,7 @@ validates credentials and proxies to the private orchestrator.
 import sys
 from typing import Any
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.prompts import Message
 
 from finpilot_mcp.client import client
@@ -81,6 +81,7 @@ Suggest the appropriate prompt when the user wants to do a specific task:
 @mcp.tool()
 async def analyze_credit_report(
     file_path: str,
+    ctx: Context,
     bureau: str | None = None,
 ) -> dict[str, Any]:
     """Analyze credit report from CIBIL, Experian, or Equifax.
@@ -99,9 +100,25 @@ async def analyze_credit_report(
         - Payment history and DPD analysis
         - High-rate loan swap recommendations
     """
+    step = 0
+    final_data = None
+
     try:
-        result = await client.analyze_credit_report(file_path=file_path, bureau=bureau)
-        return _success(result)
+        async for event in client.analyze_credit_report_streaming(
+            file_path=file_path, bureau=bureau
+        ):
+            if event["type"] == "progress":
+                step += 1
+                await ctx.report_progress(step, total=None, message=event["message"])
+            elif event["type"] == "result":
+                final_data = event["data"]
+            elif event["type"] == "error":
+                return {"status": "error", "error": event["error"]}
+
+        if not final_data:
+            return {"status": "error", "error": "No result received from orchestrator"}
+        return _success(final_data)
+
     except Exception as e:
         return {"status": "error", "error": str(e)}
 

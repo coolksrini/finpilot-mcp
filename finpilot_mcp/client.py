@@ -93,6 +93,27 @@ class FinPilotClient:
             }
         return await _client.invoke_workflow(ui_action="EXTRACT_CREDIT_REPORT", data=data)
 
+    async def analyze_credit_report_streaming(
+        self,
+        file_path: str,
+        bureau: str | None = None,
+    ):
+        """Stream credit report analysis — yields progress + result events."""
+        if self._is_cloud_url(file_path):
+            data: dict[str, Any] = {"input_type": "url", "url": file_path, "bureau": bureau}
+        else:
+            extracted_text, page_count = await self._extract_pdf_text(file_path)
+            data = {
+                "input_type": "text",
+                "extracted_text": extracted_text,
+                "page_count": page_count,
+                "bureau": bureau,
+            }
+        async for event in _client.invoke_workflow_streaming(
+            ui_action="EXTRACT_CREDIT_REPORT", data=data
+        ):
+            yield event
+
     async def get_credit_health(self, user_id: str | None = None) -> dict[str, Any]:
         """Get credit health summary."""
         return await _client.get_credit_health(user_id=user_id)
