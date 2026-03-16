@@ -302,6 +302,104 @@ class TestGuestPortfolioCasPdf:
 
 
 # ---------------------------------------------------------------------------
+# Credit report data quality — guest mode, checks enrichment correctness
+# ---------------------------------------------------------------------------
+
+
+class TestCreditReportDataQuality:
+    """Verify the credit report response contains expected data fields.
+
+    Regression coverage for:
+      - enrichment_failed: true (fixed by replacing MCP round-trip with direct Python calls)
+      - Missing credit_score, bureau_source, loan_accounts fields
+    """
+
+    async def test_credit_report_no_enrichment_failure(self, mcp_client, guest_credit_report_pdf):
+        """Response must NOT contain enrichment_failed: true.
+
+        Regression test: the enrichment step was calling analyze_credit_health_tool
+        on mcp-core (where it doesn't exist), causing enrichment_failed=True.
+        Fixed by using finpilot.tools.credit_health directly in the agent.
+        """
+        result = await mcp_client.call_tool(
+            "analyze_credit_report",
+            {"file_path": guest_credit_report_pdf},
+        )
+        data = await _parse(result)
+        if data.get("status") == "success":
+            report = data.get("data", {})
+            assert report.get("enrichment_failed") is not True, (
+                "enrichment_failed=True in credit report response — "
+                "direct credit_health tool call regression: check agent.py _enrich_credit_profile"
+            )
+
+    async def test_credit_report_has_credit_score(self, mcp_client, guest_credit_report_pdf):
+        """Successful credit report must include a numeric credit_score."""
+        result = await mcp_client.call_tool(
+            "analyze_credit_report",
+            {"file_path": guest_credit_report_pdf},
+        )
+        data = await _parse(result)
+        if data.get("status") != "success":
+            pytest.skip(f"Credit report analysis returned non-success: {data.get('status')}")
+        report = data.get("data", {})
+        assert "credit_score" in report, f"credit_score missing from response: {list(report.keys())}"
+        score = report["credit_score"]
+        assert isinstance(score, (int, float)) and 300 <= score <= 900, (
+            f"credit_score out of expected CIBIL range [300, 900]: {score}"
+        )
+
+    async def test_credit_report_has_bureau_source(self, mcp_client, guest_credit_report_pdf):
+        """Successful response must identify the bureau (cibil/experian/equifax/crif)."""
+        result = await mcp_client.call_tool(
+            "analyze_credit_report",
+            {"file_path": guest_credit_report_pdf},
+        )
+        data = await _parse(result)
+        if data.get("status") != "success":
+            pytest.skip(f"Credit report analysis returned non-success: {data.get('status')}")
+        report = data.get("data", {})
+        bureau = report.get("bureau_source", "")
+        assert bureau, f"bureau_source missing or empty: {report}"
+        assert bureau.lower() in ("cibil", "experian", "equifax", "crif"), (
+            f"Unexpected bureau_source: {bureau}"
+        )
+
+    async def test_credit_report_has_loan_accounts(self, mcp_client, guest_credit_report_pdf):
+        """Successful response must contain a loan_accounts list (possibly empty)."""
+        result = await mcp_client.call_tool(
+            "analyze_credit_report",
+            {"file_path": guest_credit_report_pdf},
+        )
+        data = await _parse(result)
+        if data.get("status") != "success":
+            pytest.skip(f"Credit report analysis returned non-success: {data.get('status')}")
+        report = data.get("data", {})
+        assert "loan_accounts" in report, (
+            f"loan_accounts missing from credit report response: {list(report.keys())}"
+        )
+        assert isinstance(report["loan_accounts"], list), (
+            f"loan_accounts is not a list: {type(report['loan_accounts'])}"
+        )
+
+    async def test_credit_report_high_rate_loans_identified(self, mcp_client, guest_credit_report_pdf):
+        """If loan_accounts exist, high_rate_loans must also be present (enrichment step)."""
+        result = await mcp_client.call_tool(
+            "analyze_credit_report",
+            {"file_path": guest_credit_report_pdf},
+        )
+        data = await _parse(result)
+        if data.get("status") != "success":
+            pytest.skip(f"Credit report analysis returned non-success: {data.get('status')}")
+        report = data.get("data", {})
+        if not report.get("loan_accounts"):
+            pytest.skip("No loan_accounts in report — skipping high_rate_loans check")
+        assert "high_rate_loans" in report, (
+            "high_rate_loans missing from enriched response — enrichment step may have failed silently"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Authenticated — credit report PDF (requires FINPILOT_API_KEY + CREDIT_REPORT_PDF)
 # ---------------------------------------------------------------------------
 
