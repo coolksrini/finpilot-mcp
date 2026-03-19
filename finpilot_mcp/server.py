@@ -337,7 +337,17 @@ def credit_report_analysis(
 
 1. **Ask for the file path** — Ask: "What's the full path to your {bureau_upper} PDF on your computer?"
    - Example: `/Users/name/Downloads/cibil_report.pdf`
-   - If they don't have it: "Download your free report from the {bureau_upper} website and tell me where it saved."
+   - If they don't have it: "Download your free report from the {bureau_upper} website and tell me
+     where it saved."
+   - **Password rules by provider** (tell the user what to expect before they try to open it):
+     - CIBIL (mycibil.com) → first 4 letters of your name in **lowercase** + birth **year** (YYYY)
+       e.g. name=Rahul, born 1985 → `rahu1985`
+     - CIBIL (partner portals — Paisabazaar, BankBazaar, SBI) → DOB in **DDMMYYYY**
+       e.g. `15081985`
+     - Experian → first 4 letters of your name in **UPPERCASE** + last 4 digits of registered mobile
+       e.g. name=Yash, mobile ends 8459 → `YASH8459`
+     - Equifax → DOB in **DDMMYYYY** (e.g. `15081985`); or a one-time password sent via SMS
+   - The system will try the most common formats automatically if you provide name, DOB, and mobile.
 
 2. **Call `analyze_credit_report`** with `file_path=<their path>` and `bureau="{bureau}"` to extract:
    - Credit score and the factors affecting it
@@ -386,10 +396,16 @@ def portfolio_health_check(
    - Local path: `/Users/name/Downloads/cas_statement.pdf`
    - Google Drive / OneDrive: share link with "anyone with link can view"
    - Download sources: NSDL (nsdlcas.nsdl.com), CDSL (mycas.cdsl.com), CAMS (camsonline.com)
-   - The PDF may be password-protected — ask: "Is this PDF password-protected? If so, what's the
-     password? (CAS PDFs from NSDL/CDSL/CAMS are usually protected with your date of birth in
-     DDMMYYYY format, e.g., 15081990 for 15 Aug 1990)"
-   - If they don't know the password, ask for their PAN and DOB — the system will auto-infer it.
+   - **Password rules by provider** (tell the user what to expect):
+     - NSDL eCAS → password is **PAN in CAPITAL letters** (e.g. `ABCDE1234F`)
+     - CDSL eCAS → password is **PAN in CAPITAL letters** (e.g. `ABCDE1234F`)
+     - CAMS eCAS → password is **PAN (uppercase) + DOB in DDMMYYYY** with no separator
+       (e.g. `ABCDE1234F15081990` for PAN=ABCDE1234F, DOB=15 Aug 1990)
+     - KFintech CAS → **user-defined** at the time of request — ask the user for the password
+       they set when they downloaded the statement from mfs.kfintech.com
+     - Groww / Zerodha reports → **PAN in CAPITAL letters**
+     - Kuvera → usually **not password-protected**
+   - If they're unsure, ask for their PAN and DOB — the system will auto-infer the password.
 
 2. **Call `analyze_portfolio`** with `file_path=<their path or URL>` to extract:
    - All mutual fund holdings across AMCs and folios
