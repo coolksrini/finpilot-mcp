@@ -68,7 +68,8 @@ Suggest the appropriate prompt when the user wants to do a specific task:
 - Get the PDF file path from the user before calling any analysis tool — never fabricate data
 - Amounts in INR (₹) with Indian formatting: ₹12,34,567
 - Flag any loan with APR > 12% as a LAMF swap candidate
-- If the response includes a guest_notice field, always render it as markdown at the end of your response as a call to action
+- If the response includes a guest_notice field, always render it as markdown
+  at the end of your response as a call to action
 """,
 )
 
@@ -104,9 +105,7 @@ async def analyze_credit_report(
     final_data = None
 
     try:
-        async for event in client.analyze_credit_report_streaming(
-            file_path=file_path, bureau=bureau
-        ):
+        async for event in client.analyze_credit_report_streaming(file_path=file_path, bureau=bureau):
             if event["type"] == "progress":
                 step += 1
                 await ctx.report_progress(step, total=None, message=event["message"])
