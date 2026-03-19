@@ -51,8 +51,9 @@ FinPilot is your AI financial co-pilot for Indian households — credit, portfol
 - **get_credit_health(user_id?)** — Credit score, total debt, EMI burden, utilization summary.
 - **analyze_portfolio(file_path?, portfolio_data?)** — Analyze mutual funds from a CAS PDF
   (NSDL/CDSL/CAMS) or inline holdings dict. Returns allocation, XIRR, rebalancing recommendations.
-- **optimize_loans(loans?, user_id?)** — LAMF swap and refinancing opportunities.
-  loans: [{outstanding, apr, emi, tenure}]
+- **optimize_loans(loans?, portfolio_data?, user_id?)** — LAMF swap and refinancing opportunities.
+  loans: [{outstanding, apr, emi, tenure}]; portfolio_data: full result from analyze_portfolio
+  (required for LAMF collateral evaluation — pass it whenever you have portfolio data)
 - **create_financial_plan(goals, current_situation, user_id?)** — Goal-based investment plan.
   goals: [{name, target_amount, target_date, priority}]
 
@@ -290,28 +291,8 @@ async def create_financial_plan(
 # ============================================================================
 
 
-@mcp.resource("user://profile")
-async def get_user_profile() -> str:
-    """Get authenticated user's financial profile."""
-    if not settings.api_key:
-        return (
-            "No API key configured. Set FINPILOT_API_KEY to your fp_... token "
-            "to access personal finance features. Generate a key at myfinpilot.io."
-        )
-    # TODO: Implement user profile fetching
-    return "User profile resource - to be implemented"
-
-
-@mcp.resource("user://portfolio")
-async def get_user_portfolio() -> str:
-    """Get authenticated user's investment portfolio."""
-    if not settings.api_key:
-        return (
-            "No API key configured. Set FINPILOT_API_KEY to your fp_... token "
-            "to access personal finance features. Generate a key at myfinpilot.io."
-        )
-    # TODO: Implement portfolio fetching
-    return "User portfolio resource - to be implemented"
+# Resources (user://profile, user://portfolio) are not yet implemented.
+# They will be registered here in Phase 1 once the backend endpoints exist.
 
 
 # ============================================================================
@@ -325,20 +306,16 @@ async def get_user_portfolio() -> str:
 )
 def credit_report_analysis(
     bureau: str = "cibil",
-    find_lamf_opportunities: bool = True,
 ) -> str:
     """Analyze your CIBIL, Experian, or Equifax credit report to find savings.
 
     Args:
         bureau: Credit bureau (cibil, experian, equifax) — default: cibil
-        find_lamf_opportunities: Also check for LAMF swap opportunities after analysis
     """
     bureau_upper = bureau.upper()
     lamf_note = (
         "\n\nAfter credit analysis, also call `optimize_loans` with the extracted "
         "loan data to identify LAMF swap opportunities and calculate potential annual savings."
-        if find_lamf_opportunities
-        else ""
     )
     return f"""You are a credit analyst for Indian households working with a {bureau_upper} credit report.
 
@@ -458,7 +435,7 @@ The user wants to optimize their {loan_label}. {mf_note}
    - Ask for approximate total value, or request their CAS PDF
    - Call `analyze_portfolio` if CAS PDF is provided
 
-3. **Call `optimize_loans`** with loan data (and `collateral_value` from portfolio):
+3. **Call `optimize_loans`** with `loans` data and `portfolio_data` from step 2:
    - LAMF swap: max loan amount, new EMI, annual savings
    - Break-even: months to recover any switching costs
    - Top lenders with current rates
@@ -479,20 +456,14 @@ The user wants to optimize their {loan_label}. {mf_note}
     tags={"workflow", "onboarding"},
 )
 def full_financial_health_check(
-    monthly_income: int | None = None,
     risk_profile: str = "moderate",
 ) -> list[Message]:
     """Comprehensive financial health check: credit, portfolio, debt, and financial plan.
 
     Args:
-        monthly_income: User's monthly take-home income in INR (optional)
         risk_profile: Investor risk appetite (conservative, moderate, aggressive)
     """
-    income_context = (
-        f"Monthly income: ₹{monthly_income:,}"
-        if monthly_income
-        else "Monthly income: not yet provided — ask early to calculate debt-to-income ratio"
-    )
+    income_context = "Monthly income: not yet provided — ask early to calculate debt-to-income ratio"
 
     system_prompt = f"""You are FinPilot, a certified financial advisor for Indian households.
 
