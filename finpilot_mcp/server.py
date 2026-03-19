@@ -46,8 +46,9 @@ mcp = FastMCP(
 FinPilot is your AI financial co-pilot for Indian households — credit, portfolio, loans, and planning.
 
 ## Tools
-- **analyze_credit_report(file_path, bureau?)** — Parse a CIBIL/Experian/Equifax PDF.
-  Pass a local path or shared cloud URL. Bureau is auto-detected if not specified.
+- **analyze_credit_report(file_path, bureau?, password?, name?, dob?, mobile?)** — Parse a
+  CIBIL/Experian/Equifax PDF. Pass a local path or shared cloud URL. Bureau is auto-detected.
+  Pass password if protected; or name+dob+mobile to auto-infer the password by bureau format.
 - **get_credit_health(user_id?)** — Credit score, total debt, EMI burden, utilization summary.
 - **analyze_portfolio(file_path?, portfolio_data?, password?, pan?, dob?)** — Analyze mutual funds
   from a CAS PDF (NSDL/CDSL/CAMS) or inline holdings dict. Returns allocation, XIRR, rebalancing
@@ -86,6 +87,10 @@ async def analyze_credit_report(
     file_path: str,
     ctx: Context,
     bureau: str | None = None,
+    password: str | None = None,
+    name: str | None = None,
+    dob: str | None = None,
+    mobile: str | None = None,
 ) -> dict[str, Any]:
     """Analyze credit report from CIBIL, Experian, or Equifax.
 
@@ -95,6 +100,13 @@ async def analyze_credit_report(
                    Cloud URL:  https://drive.google.com/... or https://1drv.ms/...
                                (must be shared with "anyone with link can view")
         bureau: Credit bureau name (cibil, experian, equifax) — auto-detected if not provided
+        password: PDF password if the file is password-protected.
+        name: First name — used to auto-infer the password when not provided.
+              CIBIL (mycibil.com): first 4 letters lowercase + birth year.
+              Experian: first 4 letters uppercase + last 4 digits of mobile.
+        dob: Date of birth in DDMMYYYY format (e.g. "15081985") — used for password inference.
+             CIBIL partner portals and Equifax use DOB directly as the password.
+        mobile: 10-digit mobile number — last 4 digits used for Experian / CIBIL app format.
 
     Returns:
         Comprehensive credit analysis including:
@@ -107,7 +119,14 @@ async def analyze_credit_report(
     final_data = None
 
     try:
-        async for event in client.analyze_credit_report_streaming(file_path=file_path, bureau=bureau):
+        async for event in client.analyze_credit_report_streaming(
+            file_path=file_path,
+            bureau=bureau,
+            password=password,
+            name=name,
+            dob=dob,
+            mobile=mobile,
+        ):
             if event["type"] == "progress":
                 step += 1
                 await ctx.report_progress(step, total=None, message=event["message"])
@@ -349,7 +368,8 @@ def credit_report_analysis(
      - Equifax → DOB in **DDMMYYYY** (e.g. `15081985`); or a one-time password sent via SMS
    - The system will try the most common formats automatically if you provide name, DOB, and mobile.
 
-2. **Call `analyze_credit_report`** with `file_path=<their path>` and `bureau="{bureau}"` to extract:
+2. **Call `analyze_credit_report`** with `file_path`, `bureau="{bureau}"`, and any password
+   params the user provided (password, name, dob, mobile) to extract:
    - Credit score and the factors affecting it
    - All active loan accounts with true APR, outstanding balance, and EMI
    - Payment history and DPD (days past due) flags

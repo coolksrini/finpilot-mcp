@@ -48,9 +48,10 @@ class FinPilotClient:
         with open(file_path, "rb") as f:
             return f.read()
 
-    async def _extract_pdf_text(self, file_path: str) -> tuple[str, int]:
+    async def _extract_pdf_text(self, file_path: str, passwords: list[str] | None = None) -> tuple[str, int]:
         """Extract text from a local PDF on the host machine.
 
+        Tries each password in order (empty string = unprotected).
         Returns (full_text, page_count). Runs pdfplumber locally so the
         orchestrator (in Docker) receives text, not a file path or blob.
         """
@@ -59,12 +60,78 @@ class FinPilotClient:
         import pdfplumber
 
         pdf_bytes = await self._read_file_bytes(file_path)
-        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-            parts = []
-            for i, page in enumerate(pdf.pages, start=1):
-                text = page.extract_text() or ""
-                parts.append(f"=== PAGE {i} ===\n\n{text}")
-            return "\n\n".join(parts), len(pdf.pages)
+        attempts = passwords if passwords else [""]
+        last_exc: Exception | None = None
+        for pwd in attempts:
+            try:
+                with pdfplumber.open(BytesIO(pdf_bytes), password=pwd or None) as pdf:
+                    parts = []
+                    for i, page in enumerate(pdf.pages, start=1):
+                        text = page.extract_text() or ""
+                        parts.append(f"=== PAGE {i} ===\n\n{text}")
+                    return "\n\n".join(parts), len(pdf.pages)
+            except Exception as exc:
+                last_exc = exc
+                continue
+        raise ValueError(f"Failed to open PDF (tried {len(attempts)} password(s)): {last_exc}")
+
+    @staticmethod
+    def _build_credit_report_passwords(
+        password: str | None,
+        name: str | None,
+        dob: str | None,
+        mobile: str | None,
+    ) -> list[str]:
+        """Return ordered password candidates for a credit report PDF.
+
+        Password rules (official sources, verified 2026-03):
+          CIBIL (mycibil.com)     → first4name_lower + YYYY
+          CIBIL (partner portals) → DDMMYYYY
+          Experian                → FIRST4NAME_UPPER + last4mobile
+          Equifax                 → DDMMYYYY
+        """
+        if password:
+            return [password, ""]
+
+        candidates: list[str] = []
+
+        # Derived helpers
+        first4_lower: str | None = None
+        first4_upper: str | None = None
+        if name:
+            first_name = name.strip().split()[0] if name.strip() else ""
+            padded = first_name.ljust(4, "9")[:4]  # pad short names with "9"
+            first4_lower = padded.lower()
+            first4_upper = padded.upper()
+
+        last4_mobile: str | None = None
+        if mobile:
+            digits = "".join(c for c in mobile if c.isdigit())
+            if len(digits) >= 4:
+                last4_mobile = digits[-4:]
+
+        year: str | None = dob[4:8] if dob and len(dob) >= 8 else None
+
+        # CIBIL mycibil.com format
+        if first4_lower and year:
+            candidates.append(f"{first4_lower}{year}")
+        # CIBIL partner portals / Equifax
+        if dob:
+            candidates.append(dob)
+        # Experian / CIBIL app
+        if first4_upper and last4_mobile:
+            candidates.append(f"{first4_upper}{last4_mobile}")
+
+        candidates.append("")  # unprotected fallback
+
+        # Deduplicate preserving order
+        seen: set[str] = set()
+        result: list[str] = []
+        for pwd in candidates:
+            if pwd not in seen:
+                seen.add(pwd)
+                result.append(pwd)
+        return result
 
     # ========================================================================
     # API Methods
@@ -74,6 +141,10 @@ class FinPilotClient:
         self,
         file_path: str,
         bureau: str | None = None,
+        password: str | None = None,
+        name: str | None = None,
+        dob: str | None = None,
+        mobile: str | None = None,
     ) -> dict[str, Any]:
         """Analyze credit report.
 
@@ -84,7 +155,8 @@ class FinPilotClient:
         if self._is_cloud_url(file_path):
             data: dict[str, Any] = {"input_type": "url", "url": file_path, "bureau": bureau}
         else:
-            extracted_text, page_count = await self._extract_pdf_text(file_path)
+            passwords = self._build_credit_report_passwords(password, name, dob, mobile)
+            extracted_text, page_count = await self._extract_pdf_text(file_path, passwords)
             data = {
                 "input_type": "text",
                 "extracted_text": extracted_text,
@@ -97,12 +169,17 @@ class FinPilotClient:
         self,
         file_path: str,
         bureau: str | None = None,
+        password: str | None = None,
+        name: str | None = None,
+        dob: str | None = None,
+        mobile: str | None = None,
     ):
         """Stream credit report analysis — yields progress + result events."""
         if self._is_cloud_url(file_path):
             data: dict[str, Any] = {"input_type": "url", "url": file_path, "bureau": bureau}
         else:
-            extracted_text, page_count = await self._extract_pdf_text(file_path)
+            passwords = self._build_credit_report_passwords(password, name, dob, mobile)
+            extracted_text, page_count = await self._extract_pdf_text(file_path, passwords)
             data = {
                 "input_type": "text",
                 "extracted_text": extracted_text,
