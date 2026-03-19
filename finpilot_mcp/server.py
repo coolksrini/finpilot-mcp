@@ -49,8 +49,9 @@ FinPilot is your AI financial co-pilot for Indian households — credit, portfol
 - **analyze_credit_report(file_path, bureau?)** — Parse a CIBIL/Experian/Equifax PDF.
   Pass a local path or shared cloud URL. Bureau is auto-detected if not specified.
 - **get_credit_health(user_id?)** — Credit score, total debt, EMI burden, utilization summary.
-- **analyze_portfolio(file_path?, portfolio_data?)** — Analyze mutual funds from a CAS PDF
-  (NSDL/CDSL/CAMS) or inline holdings dict. Returns allocation, XIRR, rebalancing recommendations.
+- **analyze_portfolio(file_path?, portfolio_data?, password?, pan?, dob?)** — Analyze mutual funds
+  from a CAS PDF (NSDL/CDSL/CAMS) or inline holdings dict. Returns allocation, XIRR, rebalancing
+  recommendations. Pass password if the PDF is protected; or pan+dob (DDMMYYYY) to auto-infer it.
 - **optimize_loans(loans?, portfolio_data?, user_id?)** — LAMF swap and refinancing opportunities.
   loans: [{outstanding, apr, emi, tenure}]; portfolio_data: full result from analyze_portfolio
   (required for LAMF collateral evaluation — pass it whenever you have portfolio data)
@@ -153,6 +154,9 @@ async def get_credit_health(user_id: str | None = None) -> dict[str, Any]:
 async def analyze_portfolio(
     file_path: str | None = None,
     portfolio_data: dict | str | None = None,
+    password: str | None = None,
+    pan: str | None = None,
+    dob: str | None = None,
 ) -> dict[str, Any]:
     """Analyze investment portfolio from a CAS PDF or direct data.
 
@@ -162,6 +166,10 @@ async def analyze_portfolio(
                    Cloud URL:  https://drive.google.com/... or https://1drv.ms/...
                                (must be shared with "anyone with link can view")
         portfolio_data: Direct portfolio data as a dict (alternative to PDF)
+        password: PDF password if the file is password-protected.
+        pan: PAN number — used to auto-infer the password if not provided
+             (CAMS/NSDL/CDSL CAS PDFs are often protected with DOB in DDMMYYYY format).
+        dob: Date of birth in DDMMYYYY format — used alongside PAN to infer the password.
 
     Returns:
         Portfolio analysis including:
@@ -183,7 +191,13 @@ async def analyze_portfolio(
     if not file_path and not portfolio_data:
         return {"status": "error", "error": "Provide file_path or portfolio_data"}
     try:
-        result = await client.analyze_portfolio(file_path=file_path, portfolio_data=portfolio_data)
+        result = await client.analyze_portfolio(
+            file_path=file_path,
+            portfolio_data=portfolio_data,
+            password=password,
+            pan=pan,
+            dob=dob,
+        )
         return _success(result)
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -372,7 +386,10 @@ def portfolio_health_check(
    - Local path: `/Users/name/Downloads/cas_statement.pdf`
    - Google Drive / OneDrive: share link with "anyone with link can view"
    - Download sources: NSDL (nsdlcas.nsdl.com), CDSL (mycas.cdsl.com), CAMS (camsonline.com)
-   - The PDF may be password-protected (typically date of birth: DDMMYYYY)
+   - The PDF may be password-protected — ask: "Is this PDF password-protected? If so, what's the
+     password? (CAS PDFs from NSDL/CDSL/CAMS are usually protected with your date of birth in
+     DDMMYYYY format, e.g., 15081990 for 15 Aug 1990)"
+   - If they don't know the password, ask for their PAN and DOB — the system will auto-infer it.
 
 2. **Call `analyze_portfolio`** with `file_path=<their path or URL>` to extract:
    - All mutual fund holdings across AMCs and folios

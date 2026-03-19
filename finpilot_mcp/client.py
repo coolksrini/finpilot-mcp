@@ -109,9 +109,7 @@ class FinPilotClient:
                 "page_count": page_count,
                 "bureau": bureau,
             }
-        async for event in _client.invoke_workflow_streaming(
-            ui_action="EXTRACT_CREDIT_REPORT", data=data
-        ):
+        async for event in _client.invoke_workflow_streaming(ui_action="EXTRACT_CREDIT_REPORT", data=data):
             yield event
 
     async def get_credit_health(self, user_id: str | None = None) -> dict[str, Any]:
@@ -122,6 +120,9 @@ class FinPilotClient:
         self,
         file_path: str | None = None,
         portfolio_data: dict | None = None,
+        password: str | None = None,
+        pan: str | None = None,
+        dob: str | None = None,
     ) -> dict[str, Any]:
         """Analyze investment portfolio.
 
@@ -139,6 +140,13 @@ class FinPilotClient:
             data = {"input_type": "base64", "cas_pdf_base64": b64.b64encode(pdf_bytes).decode()}
         else:
             data = {"input_type": "data", "portfolio_data": portfolio_data}
+
+        if password:
+            data["password"] = password
+        if pan:
+            data["pan"] = pan
+        if dob:
+            data["dob"] = dob
 
         return await _client.invoke_workflow(ui_action="EXTRACT_SECURITIES", data=data)
 
