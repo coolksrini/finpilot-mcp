@@ -758,7 +758,7 @@ Security:
         print(f"[FinPilot MCP] Auth: {auth_mode}")
 
         uvicorn.run(
-            mcp.http_app,
+            mcp.http_app(),
             host=args.host,
             port=args.port,
             reload=args.reload,
