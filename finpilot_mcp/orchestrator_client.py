@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from finpilot_mcp import machine_id as _machine_id
+from finpilot_mcp.auth import resolve_request_credential
 from finpilot_mcp.config import settings
 
 logger = logging.getLogger(__name__)
@@ -71,14 +72,16 @@ class OrchestratorClient:
                 "id": 1,
             }
 
-            # Build request headers — include auth and machine ID
+            # Build request headers — include auth and machine ID.
+            # The credential is the caller's own Bearer fp_ key when running
+            # over HTTP (remote connector mode), else FINPILOT_API_KEY.
             headers: dict[str, str] = {
                 "Content-Type": "application/json",
                 "Accept": "application/json",
                 "X-Machine-ID": _machine_id.get(),
             }
-            if settings.api_key:
-                headers["Authorization"] = f"Bearer {settings.api_key}"
+            if credential := resolve_request_credential():
+                headers["Authorization"] = f"Bearer {credential}"
 
             # POST JSON-RPC to Auth Service gateway (proxied → Orchestrator)
             # Use longer timeout for large PDFs (up to 2 minutes)
@@ -162,8 +165,8 @@ class OrchestratorClient:
             "Accept": "text/event-stream",
             "X-Machine-ID": _machine_id.get(),
         }
-        if settings.api_key:
-            headers["Authorization"] = f"Bearer {settings.api_key}"
+        if credential := resolve_request_credential():
+            headers["Authorization"] = f"Bearer {credential}"
 
         try:
             async with httpx.AsyncClient(timeout=None) as http:

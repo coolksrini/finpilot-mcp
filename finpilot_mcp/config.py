@@ -42,6 +42,39 @@ class Settings(BaseSettings):
 
     upload_timeout: float = Field(default=120.0, description="Upload request timeout in seconds")
 
+    # ------------------------------------------------------------------
+    # OAuth 2.1 (remote connector mode) — all optional. OAuth is enabled
+    # only when client_id + client_secret + base_url are all set.
+    # ------------------------------------------------------------------
+
+    oauth_client_id: str | None = Field(
+        default=None,
+        description="Google OAuth client ID (FINPILOT_OAUTH_CLIENT_ID)",
+    )
+
+    oauth_client_secret: str | None = Field(
+        default=None,
+        description="Google OAuth client secret (FINPILOT_OAUTH_CLIENT_SECRET)",
+    )
+
+    oauth_base_url: str | None = Field(
+        default=None,
+        description="Public base URL of this MCP server (FINPILOT_OAUTH_BASE_URL), e.g. https://mcp.myfinpilot.io",
+    )
+
+    oauth_jwt_signing_key: str | None = Field(
+        default=None,
+        description=(
+            "Signing key for FastMCP-issued JWTs (FINPILOT_OAUTH_JWT_SIGNING_KEY). "
+            "Set in production so tokens survive restarts."
+        ),
+    )
+
+    oauth_redirect_path: str = Field(
+        default="/auth/callback",
+        description="OAuth callback path registered on the Google OAuth client (FINPILOT_OAUTH_REDIRECT_PATH)",
+    )
+
 
 # Global settings instance
 settings = Settings()

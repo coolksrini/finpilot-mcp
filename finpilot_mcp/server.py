@@ -11,6 +11,7 @@ from typing import Any
 from fastmcp import Context, FastMCP
 from fastmcp.prompts import Message
 
+from finpilot_mcp.auth import build_auth, resolve_request_credential
 from finpilot_mcp.client import client
 from finpilot_mcp.config import settings
 from finpilot_mcp.constants import FINPILOT_WEB_URL
@@ -29,19 +30,22 @@ _GUEST_NOTICE = (
 def _success(data: Any) -> dict[str, Any]:
     """Wrap orchestrator result in a success envelope.
 
-    Adds a ``guest_notice`` field when the request is unauthenticated
-    (no FINPILOT_API_KEY set), prompting the user to sign in for
-    persistent analysis and cross-device access.
+    Adds a ``guest_notice`` field when no fp_ credential reached the
+    gateway (neither a per-request Bearer fp_ header nor FINPILOT_API_KEY),
+    prompting the user to sign in for persistent analysis.
     """
     resp: dict[str, Any] = {"status": "success", "data": data}
-    if not settings.api_key:
+    if not resolve_request_credential():
         resp["guest_notice"] = _GUEST_NOTICE
     return resp
 
 
-# Initialize MCP server
+# Initialize MCP server.
+# auth is None unless OAuth is configured (FINPILOT_OAUTH_* env vars) — see
+# finpilot_mcp/auth.py for the OAuth 2.1 + fp_ API-key composition.
 mcp = FastMCP(
     "FinPilot",
+    auth=build_auth(),
     instructions="""
 FinPilot is your AI financial co-pilot for Indian households — credit, portfolio, loans, and planning.
 
@@ -753,9 +757,11 @@ Security:
     else:
         import uvicorn
 
+        oauth_mode = "OAuth 2.1 (Google) + fp_ keys" if mcp.auth else "none (gateway-enforced only)"
         print(f"[FinPilot MCP] Starting HTTP server on http://{args.host}:{args.port}")
         print(f"[FinPilot MCP] Gateway: {settings.gateway_url}")
         print(f"[FinPilot MCP] Auth: {auth_mode}")
+        print(f"[FinPilot MCP] Server auth: {oauth_mode}")
 
         uvicorn.run(
             mcp.http_app(),
