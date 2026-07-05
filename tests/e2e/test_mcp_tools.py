@@ -191,6 +191,37 @@ class TestGuestModePortfolioInlineData:
 # ---------------------------------------------------------------------------
 
 
+class TestPersistence:
+    """Persistence is a contract, not best-effort: a successful analysis MUST
+    be cached (orchestrator → mcp-core /mcp → Firestore → read-back).
+
+    Regression guard for the mcp-core lifespan bug where every POST /mcp
+    500'd and 22 e2e tests stayed green while nothing persisted.
+    """
+
+    async def test_second_analysis_hits_extraction_cache(self, mcp_client, guest_credit_report_pdf):
+        """Same document analyzed twice → second response reports cache hit."""
+        first = await _parse(
+            await mcp_client.call_tool(
+                "analyze_credit_report", {"file_path": guest_credit_report_pdf}
+            )
+        )
+        assert first.get("status") == "success", f"first analysis failed: {first}"
+
+        second = await _parse(
+            await mcp_client.call_tool(
+                "analyze_credit_report", {"file_path": guest_credit_report_pdf}
+            )
+        )
+        assert second.get("status") == "success", f"second analysis failed: {second}"
+        meta = second.get("data", {}).get("_metadata") or second.get("_metadata") or {}
+        assert meta.get("cache_status") == "hit", (
+            f"expected extraction cache hit on repeat analysis, got metadata: {meta}. "
+            "If this fails, the orchestrator→mcp-core→Firestore persistence chain is broken "
+            "(check mcp-core /mcp health and Firestore writes)."
+        )
+
+
 class TestGuestCreditReportAnalysis:
     """Credit report analysis in guest mode with a real PDF.
 
